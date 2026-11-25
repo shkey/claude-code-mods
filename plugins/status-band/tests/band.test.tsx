@@ -45,7 +45,7 @@ const AGENT = {
   hasRow: true,
 }
 
-type World = { git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; ctx?: number; cache?: boolean }
+type World = { git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; ctx?: number; missingContext?: boolean; cache?: boolean }
 
 const world = (on: any, o: World = {}) => {
   const clock = mock.clock(on)
@@ -56,7 +56,7 @@ const world = (on: any, o: World = {}) => {
     const { promptCache, ...bare } = USAGE
     const base = o.cache === false ? bare : { ...bare, promptCache }
 
-    return { value: (o.ctx === undefined ? base : { ...base, context: { ...USAGE.context, tokens: o.ctx } }) as never }
+    return { value: (o.missingContext ? { ...base, context: { window: USAGE.context.window } } : o.ctx === undefined ? base : { ...base, context: { ...USAGE.context, tokens: o.ctx } }) as never }
   })
   on('session.model', () => ({ value: 'example-provider/claude-sonnet-5-5' }))
   on('session.cwd', () => ({ value: '/repo/my/status-band' }))
@@ -584,6 +584,19 @@ test('the context row has the gauge and the limits on small gauges, like the coc
   await ui.unmount()
 })
 
+test('context keeps a placeholder, then uses only the latest same-model input when host fill is absent', async ($, on) => {
+  world(on, { missingContext: true })
+  model(on, { ...USAGE_OF, input_tokens: 10_000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 2_000 })
+  await $.session.start(START)
+  const ui = await mount($)
+  expect(await has(ui, /ctx unavailable/)).toBe(true)
+  await drain($.turn.step(STEP))
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /~5%/)).toBe(true)
+  expect(await has(ui, /52k\/1M/)).toBe(true)
+  await ui.unmount()
+})
+
 const recapLine = (content: string, isSidechain = false) =>
   JSON.stringify({ type: 'system', subtype: 'away_summary', content, isSidechain })
 
@@ -753,12 +766,14 @@ test('the speed row, the last request and the api time start from the transcript
       JSON.stringify({ type: 'assistant', requestRef: 'r' + i, apiBlockIndex: 1, timestamp: at(t0 + 5), message: { id: 'm' + i, stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't' + i, name: 'Bash' }], usage: { input_tokens: 100, output_tokens: 40, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }),
     )
   }
-  world(on, { transcript: rows.join('\n') })
+  world(on, { transcript: rows.join('\n'), missingContext: true })
   await $.session.start(START)
   await settle()
 
   const ui = await mount($)
 
+  expect(await has(ui, /~0%/)).toBe(true)
+  expect(await has(ui, /100\/1M/)).toBe(true)
   expect(await has(ui, /SPEED/)).toBe(true)
   expect(await has(ui, /ttft 3\.0s/)).toBe(true) // 4 s to the end of thinking, 1 s of it spent thinking
   expect(await has(ui, /e2e 5\.0s/)).toBe(true)

@@ -398,7 +398,7 @@ export const register: Register = on => {
           cacheRead: u.cache_read_input_tokens,
           cacheWrite: u.cache_creation_input_tokens,
         }
-        const stats = summarizeStep(sample, usage, u.model ?? e.model, await $.clock.now())
+        const stats = summarizeStep(sample, usage, e.model, await $.clock.now())
         const agentId = e.agentId
 
         if (agentId === undefined) {

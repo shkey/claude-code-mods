@@ -210,22 +210,30 @@ const contextRow = (c: Ctx) => {
 
   const { Text } = ui
   const items: unknown[] = []
-  const pct = m.percent ?? (m.tokens !== null && m.window > 0 ? Math.round((m.tokens / m.window) * 100) : null)
+  const last = s.perf.last
+  const hasWindow = Number.isFinite(m.window) && m.window > 0
+  const input = last !== null && last.model !== '' && last.model === s.identity.model
+    ? last.usage.input + last.usage.cacheRead + last.usage.cacheWrite : 0
+  const estimated = m.percent === null && m.tokens === null && hasWindow && Number.isFinite(input) && input > 0
+  const tokens = estimated ? input : m.tokens
+  const pct = m.percent ?? (tokens !== null && hasWindow ? Math.min(100, Math.round(tokens / m.window * 100)) : null)
 
   // The gauge, the percentage and the tokens; then each rate-limit window on a small gauge; then the cost.
   if (pct !== null) {
     const tone = toneOf(pct)
-    const used = m.tokens !== null ? '  ' + fmtTok(m.tokens) + '/' + fmtTok(m.window) : ''
+    const used = tokens !== null && hasWindow ? '  ' + fmtTok(tokens) + '/' + fmtTok(m.window) : ''
 
     items.push(
       <Text key="ctx">
         {meter(ui, pct, 14, tone)}
-        <Text color={tone}>{' ' + pct + '%'}</Text>
+        <Text color={tone}>{' ' + (estimated ? '~' : '') + pct + '%'}</Text>
         <Text dimColor>{used}</Text>
         {pct >= 80 ? <Text color={BAD}>{'  ⚠ /compact'}</Text> : null}
-        {m.tokens !== null && m.tokens > 200_000 ? <Text color={BAD} bold>{'  >200k'}</Text> : null}
+        {tokens !== null && tokens > 200_000 ? <Text color={BAD} bold>{'  >200k'}</Text> : null}
       </Text>,
     )
+  } else {
+    items.push(dim(ui, '─'.repeat(14) + '  ctx unavailable', 'ctx'))
   }
   for (const l of m.limits.slice(0, 2)) {
     const tone = toneOf(l.percentUsed)

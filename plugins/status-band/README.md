@@ -58,6 +58,8 @@ A row with nothing to show is left out.
 
 SESSION omits Recap if the transcript has none. It reads existing records and never runs a model request to generate one. The manual `/recap` command output is not tracked. During idle, the band checks transcript metadata every five seconds and reads at most the last 512 KiB when it changes.
 
+CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. Without usable request data it shows an empty track and `ctx unavailable`.
+
 ## Commands
 
 | Command | Does |
