@@ -1,0 +1,9 @@
+{
+  "name": "prompt-timeline",
+  "version": "0.1.0",
+  "description": "Jump to your prompts from the fullscreen transcript sidebar.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "shkey"
+  }
+}

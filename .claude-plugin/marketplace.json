@@ -8,6 +8,11 @@
       "name": "status-band",
       "source": "./plugins/status-band",
       "description": "Session, model metrics, Git and tool activity above the prompt."
+    },
+    {
+      "name": "prompt-timeline",
+      "source": "./plugins/prompt-timeline",
+      "description": "Clickable prompt markers beside the fullscreen transcript."
     }
   ],
   "description": "Independent Claude Code mods for everyday development."

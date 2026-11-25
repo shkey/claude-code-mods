@@ -1,6 +1,9 @@
 # Claude Code mods
 
-A marketplace for independent Claude Code mods. See [status-band](plugins/status-band/README.md) for the status band and requirements.
+A marketplace for independent Claude Code mods.
+
+- [status-band](plugins/status-band/README.md): session and activity metrics above the prompt.
+- [prompt-timeline](plugins/prompt-timeline/README.md): clickable prompt ticks beside the fullscreen transcript.
 
 ## Install
 
