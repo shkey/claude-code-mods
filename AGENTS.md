@@ -1,5 +1,61 @@
-# Claude Code mods
+# Claude Code mods：开发与发布约定
 
-Each plugin lives under `plugins/<name>/` with its own manifest, README and tests. The root `.claude-plugin/marketplace.json` is the catalog. Keep entry names equal to manifest names. Bump the changed plugin's manifest version for releases; do not set a second version in the catalog.
+## 1. 认领与隔离
 
-Validate the root and changed plugin with `claude plugin validate`. Run `claude plugin test` inside the changed plugin. For type checks, load it with an interactive engine to generate declarations, then run `bun x --bun -p typescript@5 tsc -p .` from the plugin folder. Do not track engine-generated type files or `tsconfig.json`. Use synthetic fixtures. Do not commit personal settings, session data, credentials, or local Git history.
+- 每个插件放在 `plugins/<name>/`，独立维护 manifest、README、源码和测试。根 `.claude-plugin/marketplace.json` 只登记插件及来源；目录名、市场条目名与 manifest 名必须一致。
+- 从新拉取的 `origin/main` 建独立 Git worktree。一个任务一个 worktree。先声明改动范围和验收条件；不要把其他任务的未提交改动带入本次发布。
+- 维护上游插件时，记录上游来源、同步基线和本地差异。保留许可证与致谢。不顺手改写上游文件。
+
+## 2. 开发、调试与运行验收
+
+1. 先记下 `claude --version`。用本机引擎生成的声明核对 mod API，不把其他版本的声明当作运行契约。
+2. 从仓库根目录在独立终端启动开发版。只加载被测插件的一个来源；检查是否与已安装的同名副本混用。开发版验证不能代替 Marketplace 安装版验证。
+3. 修复缺陷时先写能在旧实现上失败的测试。使用合成输入。不要写入用户会话记录，也不要把用户配置、凭据、真实会话记录或生成的声明和 `tsconfig.json` 提交到 Git。
+4. 执行插件测试、市场校验、插件校验和类型检查。界面改动还必须在真实终端复测：空会话、窄窗与宽窗、实际点击、失败路径。涉及历史状态时，分别验证新会话和恢复会话。
+
+```sh
+claude --version
+claude --plugin-dir ./plugins/prompt-timeline
+```
+
+退出独立开发会话后，从仓库根目录运行以下检查。示例插件名按任务替换。类型检查使用上一步生成的声明。
+
+```sh
+claude plugin validate .
+claude plugin validate plugins/prompt-timeline
+claude plugin test plugins/prompt-timeline
+(cd plugins/prompt-timeline && bun x --bun -p typescript tsc -p .)
+git diff --check
+```
+
+### 交互经验
+
+- `prompt-timeline`：会话路径出现时，记录文件不一定已经创建。文件不存在时保持空列表并重试；真正的读取错误要留证据。消息按 ID 寻址，不按预览文本匹配。面板宽度只是请求；用长对话验证点击前目标在视口外、点击后原文进入视口。
+- `status-band`：分别检查实时更新和加载既有会话时的状态。标题和统计数据都不能只看新会话。
+- `image-preview`：用无敏感信息的样本检查图片能否实际显示、失效路径是否有提示。只验证命令响应不算显示验收。
+
+## 3. 版本检查与发布
+
+1. 以**上一份可安装发布**为基准逐个插件比对，不只看这次 Git diff。代码、运行资源、入口、配置契约或依赖变化时，必须在本批发布把该插件的 `.claude-plugin/plugin.json` 版本升高。文档和测试单独变更时不升版；无关插件不陪升。
+2. 在审查与推送前核对「变更插件 → 上一发布版本 → 发布版本」。同版本出现不同运行文件时阻止发布，补正确的版本号。不要在市场索引再声明一份版本，也不要靠删除用户缓存补救漏升版。
+3. 提交仅含本任务文件。准备推送前再 fetch 并核对主线；只快进推送，不强推。记录提交、发布版本和每项验证结果。
+4. 推送后走 Marketplace 更新路径，用**不带 `--plugin-dir` 的新会话**验收。依次确认目录快照、安装范围、安装版本及运行行为。热重载可以用于调试，不作为发布验收依据。
+
+```sh
+claude plugin marketplace update claude-code-mods
+claude plugin update prompt-timeline@claude-code-mods --scope user
+claude plugin list --json
+```
+
+### 更新后仍是旧行为
+
+已知案例：`4e34bf2` 把回复跳转合入主线，但 `prompt-timeline` 仍声明 `0.1.0`。市场副本已更新，安装副本没有新代码。补发 `0.1.1`；不靠热重载解决版本遗漏。
+
+- **市场旧**：核对市场来源和拉取的提交。
+- **安装旧**：核对插件 ID、范围、版本和安装路径。版本没变但主线代码变了，先检查是否漏升版。比较安装文件与发布提交，不只看更新命令的退出码。
+- **运行旧**：确认新会话使用安装版，没有开发副本或别的作用域覆盖。实测新行为后才宣布发布完成。
+- **发布回退**：保留历史。用新提交恢复上一份已知可用的实现，再升一个更高版本；不要把旧内容覆盖进已有版本。
+
+### 交接与清理
+
+交接记录必须区分已提交、已推送、已安装和已在真实终端验收，注明跳过项及原因。清理前逐个核实工作树无改动、提交已入主线、没有本地独有提交。另行确认清理范围；不因一次发布删除其他开发副本。
