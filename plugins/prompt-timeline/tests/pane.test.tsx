@@ -42,6 +42,8 @@ test('restores distinct prompts, updates on scroll, and clears state when the se
   const ui = await $.ui.mount(pane)
   const has = async (text: string) => (await ui.find({ type: 'Button', text })) !== undefined
   expect(await has('━ 重复提问')).toBe(true)
+  expect(await ui.find({ type: 'Button', key: 'reply:first' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'reply:second' })).toBeUndefined()
   expect(await has('─ 重复提问')).toBe(false)
 
   transcript += '\n'

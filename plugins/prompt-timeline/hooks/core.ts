@@ -1,5 +1,5 @@
-type Row = { id: string; parent?: string; side: boolean; text: string; tools: string[] }
-export type Prompt = { id: string; text: string }
+type Row = { id: string; parent?: string; side: boolean; text: string; answer: boolean; tools: string[] }
+export type Prompt = { id: string; text: string; replyId?: string }
 type Position = { order: number; prompt: string }
 export const rowKey = (id: string) => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id) ? id.slice(0, 24) : id
 
@@ -35,8 +35,10 @@ export function parseRow(line: string): Row | undefined {
   const text = human && row.type === 'user' && !blocks.some(b => b?.type === 'tool_result')
     ? promptText(typeof content === 'string' ? content : blocks.flatMap(b => b?.type === 'text' && typeof b.text === 'string' ? [b.text] : []).join(' '))
     : ''
+  const answer = row.type === 'assistant' && !row.isMeta && !row.isApiErrorMessage &&
+    (typeof content === 'string' ? Boolean(content.trim()) : blocks.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim()))
   const tools = blocks.flatMap(b => b?.type === 'tool_use' && typeof b.id === 'string' ? [b.id] : [])
-  return { id: row.uuid, parent: row.parentUuid ?? row.logicalParentUuid, side: row.isSidechain === true, text, tools }
+  return { id: row.uuid, parent: row.parentUuid ?? row.logicalParentUuid, side: row.isSidechain === true, text, answer, tools }
 }
 
 export function indexRows(history: Row[]) {
@@ -51,14 +53,15 @@ export function indexRows(history: Row[]) {
   }
   const prompts: Prompt[] = []
   const rows = new Map<string, Position>()
-  let owner: string | undefined
+  let owner: Prompt | undefined
   chain.reverse().forEach((row, order) => {
     if (row.text) {
-      owner = row.id
-      prompts.push({ id: row.id, text: row.text })
+      owner = { id: row.id, text: row.text }
+      prompts.push(owner)
     }
     if (owner) {
-      for (const id of [row.id, ...row.tools]) rows.set(rowKey(id), { order, prompt: owner })
+      if (row.answer) owner.replyId ??= row.id
+      for (const id of [row.id, ...row.tools]) rows.set(rowKey(id), { order, prompt: owner.id })
     }
   })
   return { prompts, rows }

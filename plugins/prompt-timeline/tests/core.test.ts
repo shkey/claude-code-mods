@@ -45,3 +45,14 @@ test('fits a single label in terminal cells and strips control characters', () =
   expect(preview('abcdE', 4)).toBe('abc…')
   expect(preview('A\u001b\u202eB', 2)).toBe('AB')
 })
+
+
+test('anchors each turn to its first visible assistant text, skipping tool-only rows and errors', () => {
+  const answer = (uuid: string, parentUuid: string, text: string, extra = {}) => ({
+    uuid, parentUuid, type: 'assistant', message: { content: [{ type: 'text', text }] }, ...extra,
+  })
+  const history = index(user('one', null, 'first'), reply('tool', 'one'),
+    answer('error', 'tool', 'error', { isApiErrorMessage: true }), answer('answer', 'error', 'first answer'),
+    answer('later', 'answer', 'more'), user('two', 'later', 'second'), reply('pending', 'two'))
+  expect(history.prompts.map(p => [p.id, p.replyId])).toEqual([['one', 'answer'], ['two', undefined]])
+})

@@ -120,7 +120,10 @@ export const register: Register = on => {
     return next(e)
   })
   on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
-    if (e.surface === 'terminal') report($, e.requestId, e.props.onScreen)
+    if (e.surface === 'terminal') {
+      if (e.props.isFirstOfReply) drawn.set(rowKey(e.requestId), e.requestId)
+      report($, e.requestId, e.props.onScreen)
+    }
     return next(e)
   })
   on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
@@ -140,21 +143,27 @@ export const register: Register = on => {
     if (e.props.view.agentId) return <Text dimColor>Switch to the main chat.</Text>
     return <Box flexDirection="column">
       <Text dimColor>Prompts · {state.prompts.length}</Text>
-      {state.prompts.map(p => <Button key={`jump:${p.id}`} plain dimColor={p.id !== state.current}
-        label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, e.props.bodyColumns - 2)}`} onPress={() => {}} />)}
+      {state.prompts.map(p => <Box key={`turn:${p.id}`} flexDirection="row" gap={1}>
+        <Button key={`jump:${p.id}`} plain dimColor={p.id !== state.current}
+          label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, e.props.bodyColumns - (p.replyId ? 8 : 2))}`} onPress={() => {}} />
+        {p.replyId && <Button key={`reply:${p.id}`} plain label="回复" onPress={() => {}} />}
+      </Box>)}
     </Box>
   })
   on('ui.press', { component: 'Pane', requestId: PANE, plugin: PANE }, async ($, e, next) => {
     const result = await next(e)
-    if (!e.element.startsWith('jump:')) return result
-    const id = e.element.slice(5)
-    if (!index.prompts.some(p => p.id === id)) return result
+    const match = /^(jump|reply):(.+)$/.exec(e.element)
+    if (!match) return result
+    const prompt = index.prompts.find(p => p.id === match[2])
+    if (!prompt) return result
+    const id = match[1] === 'reply' ? prompt.replyId : prompt.id
+    if (!id) return result
     const target = drawn.get(rowKey(id)) ?? id
     const jump = await $.ui.scroll({ to: { requestId: target }, block: 'start' })
-    if (jump.deny) $.ui.toast(`Cannot jump to this prompt: ${jump.deny}`)
+    if (jump.deny) $.ui.toast(`Cannot jump to this message: ${jump.deny}`)
     else {
       visible.clear()
-      current = id
+      current = prompt.id
       await publish($)
     }
     return result
