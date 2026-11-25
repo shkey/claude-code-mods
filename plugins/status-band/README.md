@@ -56,7 +56,7 @@ SESSION stays at the top of the band, even before the title or Recap arrives. IN
 
 A row with nothing to show is left out.
 
-SESSION omits Recap if the transcript has none. It reads existing records and never runs a model request to generate one. The manual `/recap` command output is not tracked. During idle, the band checks transcript metadata every five seconds and reads at most the last 512 KiB when it changes.
+SESSION resolves titles from the current transcript independently of request counters. On startup or transcript change it can look back beyond the regular tail; a manual title takes precedence. SESSION omits Recap if the transcript has none. It reads existing records and never runs a model request to generate one. The manual `/recap` command output is not tracked. During idle, the band checks transcript metadata every five seconds and reads at most the last 512 KiB when it changes.
 
 CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. Without usable request data it shows an empty track and `ctx unavailable`.
 

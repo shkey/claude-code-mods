@@ -45,7 +45,7 @@ const AGENT = {
   hasRow: true,
 }
 
-type World = { git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; ctx?: number; missingContext?: boolean; cache?: boolean }
+type World = { git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; path?: string; ctx?: number; missingContext?: boolean; cache?: boolean }
 
 const world = (on: any, o: World = {}) => {
   const clock = mock.clock(on)
@@ -62,7 +62,7 @@ const world = (on: any, o: World = {}) => {
   on('session.cwd', () => ({ value: '/repo/my/status-band' }))
   on('session.root', () => ({ value: '/repo/my' }))
   on('session.version', () => ({ value: { version: '2.1.332' } }))
-  on('session.info', () => ({ value: { transcriptPath: '/t.jsonl' } as never }))
+  on('session.info', () => ({ value: { transcriptPath: o.path ?? '/t.jsonl' } as never }))
   on('fs.stat', () => ({ value: { size: (o.transcript ?? '').length } as never }))
   on('fs.read', (_: unknown, e: any) => ({ value: (o.transcript ?? '').slice(e.offset ?? 0, (e.offset ?? 0) + (e.length ?? 1e9)) as never }))
   on('process.run', (_: unknown, e: { argv: readonly string[] }) => {
@@ -639,6 +639,29 @@ test('a recap written while idle appears without a fresh turn or reload', async 
   expect(await has(ui, /Continue the regression check/)).toBe(true)
   expect(await has(ui, /Initial title/)).toBe(true)
   expect(rowKeys(await ui.drawn())).toEqual(initialRows)
+  await ui.unmount()
+})
+
+test('a resumed transcript restores an older title even after live accounting started', async ($, on) => {
+  const fixture = { path: '/one.jsonl', transcript: '' }
+  const clock = world(on, fixture)
+  model(on)
+  await $.session.start(START)
+  await settle()
+  await drain($.turn.step(STEP))
+  fixture.path = '/two.jsonl'
+  fixture.transcript = JSON.stringify({ type: 'custom-title', customTitle: 'Earlier title' }) + '\n' +
+    (JSON.stringify({ type: 'system', content: 'x'.repeat(1024) }) + '\n').repeat(600)
+  await clock.advance(5_000)
+  await settle()
+  const ui = await mount($)
+  expect(await has(ui, /Earlier title/)).toBe(true)
+  fixture.path = '/three.jsonl'
+  fixture.transcript = JSON.stringify({ type: 'ai-title', aiTitle: 'Different session' }) + '\n'
+  await clock.advance(5_000)
+  await settle()
+  expect(await has(ui, /Different session/)).toBe(true)
+  expect(await has(ui, /Earlier title/)).toBe(false)
   await ui.unmount()
 })
 

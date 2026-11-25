@@ -192,9 +192,9 @@ const seedFromTranscript = async ($: EngineInterface): Promise<void> => {
 
     const path = (await $.session.info()).transcriptPath
     if (path === '') return
-    const { size, mtimeMs } = await $.fs.stat(path)
+    const { size } = await $.fs.stat(path)
 
-    if (size > SEED_MAX_BYTES) return refreshFromTranscript($)
+    if (size > SEED_MAX_BYTES) return
 
     const acc = newScan()
 
@@ -203,17 +203,11 @@ const seedFromTranscript = async ($: EngineInterface): Promise<void> => {
 
       scanChunk(acc, await $.fs.read(path, { offset, length }), offset + length >= size)
     }
-    await update($, identity, i => ({
-      ...i,
-      customTitle: i.customTitle || acc.customTitle,
-      aiTitle: i.aiTitle || acc.aiTitle,
-      recap: i.recap || acc.recap,
-    }))
+    if ((await $.session.info()).transcriptPath !== path) return
     await update($, calls, live => {
       const ids = new Set(live.map(c => c.toolUseId))
       return [...acc.calls.filter(c => !ids.has(c.toolUseId)), ...live].slice(-CALL_LIMIT)
     })
-    transcriptStamp ??= { path, size, mtimeMs }
     if ((await read($, main)).reqs > 0) return
 
     const { stats, apiMs } = requestStats(acc)
@@ -247,15 +241,32 @@ const refreshFromTranscript = async ($: EngineInterface): Promise<void> => {
     const { size, mtimeMs } = path === '' ? { size: 0, mtimeMs: 0 } : await $.fs.stat(path)
     if (transcriptStamp?.path === path && transcriptStamp.size === size && transcriptStamp.mtimeMs === mtimeMs) return
 
-    const offset = Math.max(0, size - TAIL_BYTES)
-    const acc = newScan()
-    if (size > 0) {
-      const text = await $.fs.read(path, { offset, length: size - offset })
-      // Leave an incomplete final line for the next refresh; the engine appends newline-terminated records.
-      scanChunk(acc, text, false, false)
-    }
-
     const replaced = transcriptStamp !== undefined && (transcriptStamp.path !== path || size < transcriptStamp.size)
+    const initial = transcriptStamp === undefined || replaced
+    const acc = newScan()
+    // On resume, find titles older than the tail even when counters are already live.
+    // Read newest chunks first; retaining a custom title takes precedence over an AI title.
+    const floor = Math.max(0, size - (initial ? SEED_MAX_BYTES : TAIL_BYTES))
+    let boundary = ''
+    for (let end = size; end > floor;) {
+      const offset = Math.max(floor, end - TAIL_BYTES)
+      const text = await $.fs.read(path, { offset, length: end - offset })
+      const split = offset > 0 ? text.indexOf('\n') : -1
+      if (offset > 0 && split < 0) {
+        boundary = (text + boundary).slice(0, TAIL_BYTES)
+      } else {
+        const part = newScan()
+        scanChunk(part, text.slice(split + 1) + boundary, end !== size, false)
+        acc.customTitle ||= part.customTitle
+        acc.aiTitle ||= part.aiTitle
+        acc.recap ||= part.recap
+        if (acc.meta.at === 0) acc.meta = part.meta
+        boundary = split < 0 ? '' : text.slice(0, split + 1)
+      }
+      if (acc.customTitle && acc.aiTitle && acc.recap) break
+      end = offset
+    }
+    if ((await $.session.info()).transcriptPath !== path) return
     await update($, identity, i => {
       const customTitle = acc.customTitle || (replaced ? '' : i.customTitle)
       const aiTitle = acc.aiTitle || (replaced ? '' : i.aiTitle)
@@ -290,7 +301,7 @@ const tick = async ($: EngineInterface): Promise<void> => {
       await update($, now, () => t)
     }
     if (anyLive && ticks % 3 === 0) await refreshAgents($)
-    if (st.state === 'idle' && ticks % 5 === 0) void refreshFromTranscript($)
+    if (ticks % 5 === 0) void refreshFromTranscript($)
   } catch {}
 }
 
@@ -339,6 +350,7 @@ export const register: Register = on => {
     })
     await loadPrefs($)
     await seed($)
+    void refreshFromTranscript($)
     void seedFromTranscript($)
     await refreshGit($)
     await refreshAgents($)

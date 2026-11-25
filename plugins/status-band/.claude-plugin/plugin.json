@@ -1,6 +1,6 @@
 {
   "name": "status-band",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "Band above the prompt with model, context, cost, tokens, measured ttft/tpot/tps, cache countdown and tool activity",
   "keywords": [
     "claude-code",
