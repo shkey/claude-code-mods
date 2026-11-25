@@ -1,6 +1,6 @@
 {
   "name": "prompt-timeline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Jump to your prompts from the fullscreen transcript sidebar.",
   "types": "./types/index.d.ts",
   "author": {
