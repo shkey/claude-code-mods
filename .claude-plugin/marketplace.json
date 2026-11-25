@@ -13,6 +13,11 @@
       "name": "prompt-timeline",
       "source": "./plugins/prompt-timeline",
       "description": "Clickable prompt markers beside the fullscreen transcript."
+    },
+    {
+      "name": "image-preview",
+      "source": "./plugins/image-preview",
+      "description": "Upstream Better Claude image preview: hover to preview, click to open."
     }
   ],
   "description": "Independent Claude Code mods for everyday development."

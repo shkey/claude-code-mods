@@ -5,3 +5,6 @@
 **/*.jsonl
 **/node_modules/
 .DS_Store
+
+# Keep the upstream Image Preview type-check configuration verbatim.
+!/plugins/image-preview/tsconfig.json

@@ -50,3 +50,7 @@ claude plugin marketplace remove claude-code-mods
 ```
 
 Removing the marketplace also removes any other mods installed from it. No personal Claude Code settings are distributed with this repository.
+
+## Upstream references
+
+- [Better Claude / Image Preview](https://github.com/midudev/better-claude/tree/79282ad5c55313a65ab5e0de103d5eda99292e4c/plugins/image-preview): full source import, pinned to `79282ad5c55313a65ab5e0de103d5eda99292e4c`. The original [README](plugins/image-preview/README.md) and [MIT license](plugins/image-preview/LICENSE) are preserved. Its installation examples target the upstream marketplace; install `image-preview@claude-code-mods` to use this repository's copy after publication. Enable only one copy per session.
