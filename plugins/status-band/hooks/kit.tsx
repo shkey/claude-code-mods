@@ -3,7 +3,7 @@ import type { BoxProps, ButtonProps, Color, ElementConstructor, RenderChildren, 
 import { gauge } from './core'
 
 // Drawing helpers, in the visual language of the cockpit mods: an instrument row with a thin rail and a
-// label in the row's hue, figures in the terminal's own text colour, dim for what is secondary, and green,
+// label in the row's hue, selected labels in theme accents, dim for what is secondary, and green,
 // amber and red only for the state of a value. They take the elements `$.ui.resolve(e)` returned and never
 // touch `$`.
 
@@ -18,13 +18,13 @@ const LABEL_WIDTH = 8
 /** What the rail, the label and its arrow take, so detail lines and bodies start in the same column. */
 export const GUTTER = 2 + LABEL_WIDTH + 2
 
-/** A figure: the label dim, the value in the text colour (or `color`, or `isBold`). */
-export const kv = (ui: Ui, label: string, value: string, color?: Color, key?: string, isBold = false) => {
+/** A figure with separate optional accents for label and value. */
+export const kv = (ui: Ui, label: string, value: string, color?: Color, key?: string, isBold = false, labelColor?: Color) => {
   const { Text } = ui
 
   return (
     <Text key={key ?? label}>
-      <Text dimColor>{label} </Text>
+      <Text color={labelColor} dimColor={labelColor === undefined}>{label} </Text>
       <Text color={color} bold={isBold}>
         {value}
       </Text>
@@ -32,16 +32,16 @@ export const kv = (ui: Ui, label: string, value: string, color?: Color, key?: st
   )
 }
 
-/** `last in 51k out 286 · tail`: dim labels, figures in the text colour, a dim tail. */
-export const nums = (ui: Ui, label: string, pairs: readonly (readonly [string, string])[], key: string, tail = '') => {
+/** `last in 51k out 286 · tail`: an optional group accent, neutral figures and a dim tail. */
+export const nums = (ui: Ui, label: string, pairs: readonly (readonly [string, string, Color?])[], key: string, tail = '', labelColor?: Color) => {
   const { Text } = ui
 
   return (
     <Text key={key}>
-      <Text dimColor>{label} </Text>
-      {pairs.map(([l, v], i) => (
+      <Text color={labelColor} dimColor={labelColor === undefined}>{label} </Text>
+      {pairs.map(([l, v, color], i) => (
         <Text key={l + i}>
-          <Text dimColor>{(i > 0 ? ' ' : '') + l + ' '}</Text>
+          <Text color={color} dimColor={color === undefined}>{(i > 0 ? ' ' : '') + l + ' '}</Text>
           <Text>{v}</Text>
         </Text>
       ))}

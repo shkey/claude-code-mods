@@ -93,6 +93,31 @@ const OK = 'success'
 const WARN = 'warning'
 const BAD = 'error'
 
+const BLUE = 'suggestion'
+// Theme aliases can resolve to the same RGB. These accents keep categories distinct.
+const ACCENT = {
+  blue: '#5483c9', teal: '#258c8d', purple: '#936cc4', orange: '#bd7139',
+  pink: '#bb668e', slate: '#667c9e', olive: '#88823c', indigo: '#7569c2',
+  copper: '#b7655a', cyan: '#397fa3',
+} as const
+const TOOL_HUES = Object.values(ACCENT)
+
+const toolColors = (names: readonly string[]): Map<string, Color> => {
+  const colors = new Map<string, Color>()
+  const used = new Set<Color>()
+  for (const name of names) {
+    if (colors.has(name)) continue
+    let hash = 0
+    for (const ch of name) hash = Math.imul(hash, 31) + ch.charCodeAt(0) | 0
+    const start = (hash >>> 0) % TOOL_HUES.length
+    const choices = [...TOOL_HUES.slice(start), ...TOOL_HUES.slice(0, start)]
+    const color = choices.find(choice => !used.has(choice)) ?? choices[0]!
+    colors.set(name, color)
+    used.add(color)
+  }
+  return colors
+}
+
 /** A glyph and a colour for how a call, a check or an agent went. */
 const glyphOf = (status: string): { glyph: string; color: string } =>
   status === 'running' || status === 'pending'
@@ -139,14 +164,14 @@ const stateRow = (c: Ctx) => {
   if (st.state === 'busy' && st.since > 0) {
     const tools = s.calls.filter(x => x.agentId === null && x.at >= st.since).length
 
-    items.push(kv(ui, 'turn', fmtAgo(s.now - st.since) + (tools > 0 ? ' · ' + tools + ' tools' : ''), undefined, 'turn'))
+    items.push(kv(ui, 'turn', fmtAgo(s.now - st.since) + (tools > 0 ? ' · ' + tools + ' tools' : ''), undefined, 'turn', false, BLUE))
   }
   if (s.identity.model !== '') {
     const { Text } = ui
 
     items.push(
       <Text key="model">
-        <Text bold>{modelLabel(s.identity.model)}</Text>
+        <Text color={BLUE} bold>{modelLabel(s.identity.model)}</Text>
         <Text color={WARN}>{' ' + effortLabel(s.identity.effort ?? undefined)}</Text>
         {s.identity.thinking ? <Text dimColor>{' 💭'}</Text> : null}
       </Text>,
@@ -163,7 +188,7 @@ const stateRow = (c: Ctx) => {
     }
     if (st.since > 0) items.push(dim(ui, 'idle ' + fmtAgo(s.now - st.since), 'idle'))
   }
-  if (s.identity.version !== '') items.push(dim(ui, 'v' + s.identity.version, 'version'))
+  items.push(dim(ui, s.identity.version === '' ? 'version —' : 'v' + s.identity.version, 'version'))
 
   return row(ui, ROW_HUE.state, 'info', line(ui, items), 'r-state')
 }
@@ -204,31 +229,34 @@ const gitRow = (c: Ctx) => {
 
 const contextRow = (c: Ctx) => {
   const { ui, s } = c
-  const m = s.measure
-
-  if (m === null) return null
+  const m = s.measure ?? { window: 0, percent: null, tokens: null, limits: [], costUsd: null, startedAt: 0 }
 
   const { Text } = ui
   const items: unknown[] = []
-  const last = s.perf.last
   const hasWindow = Number.isFinite(m.window) && m.window > 0
-  const input = last !== null && last.model !== '' && last.model === s.identity.model
-    ? last.usage.input + last.usage.cacheRead + last.usage.cacheWrite : 0
-  const estimated = m.percent === null && m.tokens === null && hasWindow && Number.isFinite(input) && input > 0
-  const tokens = estimated ? input : m.tokens
+  const inputOf = (step: NonNullable<PerfState['last']>) =>
+    step.usage.input + step.usage.cacheRead + step.usage.cacheWrite
+  const sample = m.percent === null && m.tokens === null && hasWindow && s.identity.model !== ''
+    ? s.perf.recent.findLast(step => {
+      const input = inputOf(step)
+      return step.model === s.identity.model && Number.isFinite(input) && input > 0
+    }) : undefined
+  const estimated = sample !== undefined
+  const older = estimated && !Object.is(sample, s.perf.recent.at(-1))
+  const tokens = sample === undefined ? m.tokens : inputOf(sample)
   const pct = m.percent ?? (tokens !== null && hasWindow ? Math.min(100, Math.round(tokens / m.window * 100)) : null)
 
   // The gauge, the percentage and the tokens; then each rate-limit window on a small gauge; then the cost.
   if (pct !== null) {
     const tone = toneOf(pct)
-    const used = tokens !== null && hasWindow ? '  ' + fmtTok(tokens) + '/' + fmtTok(m.window) : ''
+    const used = tokens !== null && hasWindow ? (older ? '  last ' : '  ') + fmtTok(tokens) + '/' + fmtTok(m.window) : ''
 
     items.push(
       <Text key="ctx">
         {meter(ui, pct, 14, tone)}
         <Text color={tone}>{' ' + (estimated ? '~' : '') + pct + '%'}</Text>
         <Text dimColor>{used}</Text>
-        {pct >= 80 ? <Text color={BAD}>{'  ⚠ /compact'}</Text> : null}
+        {pct >= 80 && !older ? <Text color={BAD}>{'  ⚠ /compact'}</Text> : null}
         {tokens !== null && tokens > 200_000 ? <Text color={BAD} bold>{'  >200k'}</Text> : null}
       </Text>,
     )
@@ -246,7 +274,7 @@ const contextRow = (c: Ctx) => {
       </Text>,
     )
   }
-  if (m.costUsd !== null) items.push(dim(ui, 'cost~ ' + fmtUsd(m.costUsd), 'cost'))
+  items.push(kv(ui, 'cost~', m.costUsd === null ? '—' : fmtUsd(m.costUsd), m.costUsd === null ? 'inactive' : undefined, 'cost', false, ACCENT.purple))
   if (s.lines.added > 0 || s.lines.removed > 0) {
     items.push(
       <Text key="lines">
@@ -255,11 +283,9 @@ const contextRow = (c: Ctx) => {
       </Text>,
     )
   }
-  if (m.startedAt > 0) {
-    const apiMs = s.main.apiMs + s.agents.apiMs
-
-    items.push(dim(ui, 'up ' + fmtDur(Math.max(0, s.now - m.startedAt)) + (apiMs > 0 ? ' · api ' + fmtDur(apiMs) : ''), 'up'))
-  }
+  const apiMs = s.main.apiMs + s.agents.apiMs
+  items.push(kv(ui, 'up', m.startedAt > 0 ? fmtDur(Math.max(0, s.now - m.startedAt)) : '—', m.startedAt > 0 ? undefined : 'inactive', 'up', false, ACCENT.teal))
+  items.push(kv(ui, 'api', apiMs > 0 ? fmtDur(apiMs) : '—', apiMs > 0 ? undefined : 'inactive', 'api', false, ACCENT.blue))
 
   return items.length > 0 ? row(ui, ROW_HUE.context, 'context', line(ui, items, '   '), 'r-context') : null
 }
@@ -277,35 +303,35 @@ const tokensRow = (c: Ctx, wide: boolean) => {
   if (m !== null && m.cache !== null && m.cache.isWarm) {
     const left = cacheLeftMs(m.cache, s.now)
 
-    items.push(kv(ui, 'cache', left > 0 ? fmtDur(left) : 'warm', left <= ttlMs(ttl) * 0.2 ? WARN : OK, 'cache'))
+    items.push(kv(ui, 'cache', left > 0 ? fmtDur(left) : 'warm', left <= ttlMs(ttl) * 0.2 ? WARN : OK, 'cache', false, ACCENT.teal))
   } else if (s.lastResponse > 0) {
     const left = ttlMs(ttl) - (s.now - s.lastResponse)
 
-    items.push(left > 0 ? kv(ui, 'cache', fmtDur(left), left <= ttlMs(ttl) * 0.2 ? WARN : OK, 'cache') : dim(ui, 'cache expired', 'cache'))
+    items.push(left > 0 ? kv(ui, 'cache', fmtDur(left), left <= ttlMs(ttl) * 0.2 ? WARN : OK, 'cache', false, ACCENT.teal) : kv(ui, 'cache', 'expired', 'inactive', 'cache', false, ACCENT.teal))
   } else if (m !== null && m.cache !== null) {
-    items.push(kv(ui, 'cache', 'cold', undefined, 'cache'))
+    items.push(kv(ui, 'cache', 'cold', undefined, 'cache', false, ACCENT.teal))
+  } else {
+    items.push(kv(ui, 'cache', '—', 'inactive', 'cache', false, ACCENT.teal))
   }
 
   const last = s.perf.last
 
-  if (last !== null) {
-    const u = last.usage
-    const all = u.input + u.cacheRead + u.cacheWrite
-    const cache =
-      u.cacheRead > 0 || u.cacheWrite > 0
-        ? ' · cache r' + fmtTok(u.cacheRead) + ' w' + fmtTok(u.cacheWrite) + (all > 0 ? ' ' + Math.round((u.cacheRead * 100) / all) + '% hit' : '')
-        : ''
-
-    items.push(nums(ui, 'last', [['in', fmtTok(u.input)], ['out', fmtTok(u.output)]], 'last', cache))
+  // An all-zero usage object cannot tell us whether the provider measured any tokens.
+  const tokenPairs = (u?: Pick<Snap['main'], 'input' | 'output' | 'cacheRead' | 'cacheWrite'>) => {
+    const hasUsage = u !== undefined && u.input + u.output + u.cacheRead + u.cacheWrite > 0
+    return [['in', hasUsage ? fmtTok(u.input) : '—', ACCENT.cyan], ['out', hasUsage ? fmtTok(u.output) : '—', ACCENT.pink]] as const
   }
-  if (s.main.reqs > 0) {
-    const t = s.main
-    const cache = t.cacheRead > 0 || t.cacheWrite > 0 ? ' · cache r' + fmtTok(t.cacheRead) + ' w' + fmtTok(t.cacheWrite) : ''
+  const u = last?.usage
+  const all = u === undefined ? 0 : u.input + u.cacheRead + u.cacheWrite
+  const lastCache = u !== undefined && (u.cacheRead > 0 || u.cacheWrite > 0)
+    ? ' · cache r' + fmtTok(u.cacheRead) + ' w' + fmtTok(u.cacheWrite) + (all > 0 ? ' ' + Math.round((u.cacheRead * 100) / all) + '% hit' : '') : ''
+  items.push(nums(ui, 'last', tokenPairs(u), 'last', lastCache, ACCENT.purple))
 
-    items.push(nums(ui, 'session', [['in', fmtTok(t.input)], ['out', fmtTok(t.output)]], 'session', cache + ' · ' + t.reqs + ' req'))
-  }
+  const t = s.main
+  const cache = t.cacheRead > 0 || t.cacheWrite > 0 ? ' · cache r' + fmtTok(t.cacheRead) + ' w' + fmtTok(t.cacheWrite) : ''
+  items.push(nums(ui, 'session', tokenPairs(t), 'session', cache + (t.reqs > 0 ? ' · ' + t.reqs + ' req' : ''), ACCENT.orange))
   if (wide && s.agents.reqs > 0) {
-    items.push(nums(ui, 'agents', [['in', fmtTok(s.agents.input)], ['out', fmtTok(s.agents.output)]], 'agents', ' · ' + s.agents.reqs + ' req'))
+    items.push(nums(ui, 'agents', [['in', fmtTok(s.agents.input), ACCENT.cyan], ['out', fmtTok(s.agents.output), ACCENT.pink]], 'agents', ' · ' + s.agents.reqs + ' req', ACCENT.slate))
   }
 
   return items.length > 0 ? row(ui, tone, 'tokens', line(ui, items), 'r-tokens') : null
@@ -320,11 +346,14 @@ const speedRow = (c: Ctx, wide: boolean) => {
   const tone = ROW_HUE.speed
   const items: unknown[] = []
 
-  if (last.ttft !== null) items.push(kv(ui, 'ttft', fmtSecs(last.ttft), undefined, 'ttft'))
-  if (last.tpot !== null) items.push(kv(ui, 'tpot', fmtMs(last.tpot), undefined, 'tpot'))
-  if (last.tps !== null) items.push(kv(ui, 'tps', fmtTps(last.tps), undefined, 'tps'))
-  else if (last.tpsE2e !== null) items.push(kv(ui, 'tps~', fmtTps(last.tpsE2e), undefined, 'tps'))
-  items.push(kv(ui, 'e2e', fmtSecs(last.e2e), undefined, 'e2e'))
+  const metric = (label: string, value: number | null, format: (n: number) => string, accent: Color, key = label) =>
+    kv(ui, label, value === null ? '—' : format(value), value === null ? 'inactive' : undefined, key, false, accent)
+  items.push(
+    metric('ttft', last.ttft, fmtSecs, ACCENT.blue),
+    metric('tpot', last.tpot, fmtMs, ACCENT.teal),
+    metric(last.tps === null && last.tpsE2e !== null ? 'tps~' : 'tps', last.tps ?? last.tpsE2e, fmtTps, ACCENT.purple, 'tps'),
+    metric('e2e', last.e2e, fmtSecs, ACCENT.orange),
+  )
 
   const rec = s.perf.recent
 
@@ -334,16 +363,14 @@ const speedRow = (c: Ctx, wide: boolean) => {
     const mp = median(rec.map(r => r.tpsE2e).filter((v): v is number => v !== null))
     const me = median(rec.map(r => r.e2e))
 
-    if (mt !== null) parts.push('ttft ' + fmtSecs(mt))
-    if (mp !== null) parts.push('tps~ ' + fmtTps(mp))
-    if (me !== null) parts.push('e2e ' + fmtSecs(me))
+    parts.push('ttft ' + (mt === null ? '—' : fmtSecs(mt)), 'tps~ ' + (mp === null ? '—' : fmtTps(mp)), 'e2e ' + (me === null ? '—' : fmtSecs(me)))
     items.push(dim(ui, 'p50×' + rec.length + '  ' + parts.join('  '), 'p50'))
   }
 
   return row(ui, tone, 'speed', line(ui, items), 'r-speed')
 }
 
-const callLine = (c: Ctx, call: CallEntry) => {
+const callLine = (c: Ctx, call: CallEntry, color: Color | undefined) => {
   const { Text } = c.ui
   const g = call.status === 'unknown' ? { glyph: '?', color: 'inactive' } : glyphOf(call.status)
   const took = call.ms !== null ? fmtSecs(call.ms / 1000) : call.status === 'running' ? fmtAgo(c.s.now - call.at) : ''
@@ -353,7 +380,7 @@ const callLine = (c: Ctx, call: CallEntry) => {
     <Text wrap="truncate-end">
       <Text dimColor>{time + '  '}</Text>
       <Text color={g.color}>{g.glyph + ' '}</Text>
-      <Text>{foldTool(call.name)}</Text>
+      <Text color={color}>{foldTool(call.name)}</Text>
       <Text dimColor>{(call.target !== '' ? '  ' + call.target : '') + (took !== '' ? '  · ' + took : '') + (call.agentId !== null ? '  ↳ ' + call.agentId.slice(0, 8) : '')}</Text>
     </Text>
   )
@@ -367,15 +394,20 @@ const toolsRows = (c: Ctx): unknown[] => {
   const tone = ROW_HUE.tools
   const ranked = Object.entries(s.counts).sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
   const total = ranked.reduce((sum, [, n]) => sum + n, 0)
+  const { Text } = ui
   const items = [plain(ui, total + (total === 1 ? ' call' : ' calls'), 'total')]
-  for (const [name, n] of ranked.slice(0, 5)) items.push(plain(ui, foldTool(name) + '×' + n, name))
+  const top = ranked.slice(0, 5)
+  const recent = s.calls.slice(-DETAIL_LINES).reverse()
+  const colors = toolColors([...top.map(([name]) => name), ...recent.map(call => call.name)])
+  for (const [name, n] of top) {
+    items.push(<Text key={name}><Text color={colors.get(name)}>{foldTool(name)}</Text><Text>{'×' + n}</Text></Text>)
+  }
   if (ranked.length > 5) items.push(dim(ui, '+' + (ranked.length - 5) + ' tool types', 'other-types'))
   const toggle = s.calls.length === 0 ? undefined : { isOpen: s.prefs.open.tools, onPress: () => act.toggle('tools') }
   const out: unknown[] = [row(ui, tone, 'tools', line(ui, items), 'r-tools', toggle)]
 
   if (toggle?.isOpen) {
-    const recent = s.calls.slice(-DETAIL_LINES).reverse().map(call => callLine(c, call))
-    out.push(detail(ui, tone, recent, 'd-tools'))
+    out.push(detail(ui, tone, recent.map(call => callLine(c, call, colors.get(call.name))), 'd-tools'))
   }
 
   return out

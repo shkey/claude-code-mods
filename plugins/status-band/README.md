@@ -54,11 +54,11 @@ SESSION stays at the top of the band, even before the title or Recap arrives. IN
 | GATE ▸ | allowed, asked, denied. Open: the last 10 checks | `tool.check` |
 | TODO | the item in progress and the count done | `TodoWrite`, `TaskCreate`, `TaskUpdate` |
 
-A row with nothing to show is left out.
+A row with no activity (such as TOOLS or AGENTS) is left out. CONTEXT and TOKENS keep their core fields visible when measurements are missing: `—` means unavailable, not zero. Once a request timing sample exists, SPEED keeps its four fields visible. The p50 group retains its existing width and sample-count requirements.
 
 SESSION resolves titles from the current transcript independently of request counters. On startup or transcript change it can look back beyond the regular tail; a manual title takes precedence. SESSION omits Recap if the transcript has none. It reads existing records and never runs a model request to generate one. The manual `/recap` command output is not tracked. During idle, the band checks transcript metadata every five seconds and reads at most the last 512 KiB when it changes.
 
-CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. Without usable request data it shows an empty track and `ctx unavailable`.
+CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. If the latest request reports no usable input, it looks back over up to ten recent requests and marks an older value `last`. It does not recommend compaction from an older value. Without usable request data it shows an empty track and `ctx unavailable`.
 
 ## Commands
 

@@ -262,20 +262,31 @@ test('tools: the row shows counts and the label opens the list of calls', async 
   on('tool.call', () => ({ result: 'ok' }))
   await $.session.start(START)
 
-  for (const c of [{ tool: 'Bash', command: 'ls -la' }, { tool: 'Bash', command: 'git status' }, { tool: 'Edit', file_path: '/repo/a.ts' }]) {
+  for (const c of [{ tool: 'Bash', command: 'ls -la' }, { tool: 'Bash', command: 'git status' }, { tool: 'Edit', file_path: '/repo/a.ts' }, { tool: 'Read', file_path: '/repo/a.ts' }, { tool: 'Skill', skill: 'example' }]) {
     expect(await $.tool.call(c as never)).toEqual({ result: 'ok' })
   }
 
   const ui = await mount($)
 
   expect(await has(ui, /TOOLS/)).toBe(true)
-  expect(await has(ui, /3 calls/)).toBe(true)
+  expect(await has(ui, /5 calls/)).toBe(true)
   expect(await has(ui, /Bash×2/)).toBe(true)
   expect(await has(ui, /Edit×1/)).toBe(true)
+  const colorsFor = (tree: unknown, label: string) => [...JSON.stringify(tree).matchAll(
+    new RegExp(`"color":"(#[0-9a-f]{6})"[^}]*}[^}]*"${label}"`, 'g'),
+  )].map(match => match[1])
+  const summary = await ui.drawn()
+  const names = ['Bash', 'Read', 'Edit', 'Skill']
+  const accents = names.map(name => colorsFor(summary, name)[0])
+  expect(accents.every(Boolean)).toBe(true)
+  expect(new Set(accents).size).toBe(names.length)
   expect(await has(ui, /ls -la/)).toBe(false) // closed: no list yet
   await ui.press({ key: 'r-tools-toggle' })
   expect(await has(ui, /ls -la/)).toBe(true)
   expect(await has(ui, /git status/)).toBe(true)
+  const expanded = await ui.drawn()
+  expect(colorsFor(expanded, 'Bash')).toEqual(Array(3).fill(accents[0]))
+  for (const [i, name] of names.entries()) expect(colorsFor(expanded, name).every(color => color === accents[i])).toBe(true)
   expect(await has(ui, /Bash×2/)).toBe(true)
   expect(await has(ui, /by tool/)).toBe(false)
   await ui.press({ key: 'r-tools-toggle' })
@@ -451,7 +462,7 @@ test('when session usage fails the hooks still run and requests still go through
 
   const ui = await mount($)
 
-  expect(await has(ui, /CONTEXT/)).toBe(false)
+  expect(await has(ui, /CONTEXT/)).toBe(true)
   expect(await has(ui, /SPEED/)).toBe(true)
   await ui.unmount()
 })
@@ -556,7 +567,7 @@ test('a row can be hidden and shown again without hiding the band', async ($, on
   await shown.unmount()
 })
 
-test('colours are theme keys, as in the cockpit mods: a hue on the rail and label, never a ground or a hex', async ($, on) => {
+test('rails and status use theme keys and no backgrounds', async ($, on) => {
   world(on)
   await $.session.start(START)
 
@@ -567,7 +578,6 @@ test('colours are theme keys, as in the cockpit mods: a hue on the rail and labe
   expect(json).toContain('"color":"claude"') // the context row's
   expect(json).toContain('"color":"success"')
   expect(json).not.toContain('backgroundColor')
-  expect(json).not.toMatch(/"color":"#/)
   expect(await has(ui, /▍ GIT/)).toBe(true)
   await ui.unmount()
 })
@@ -594,6 +604,57 @@ test('context keeps a placeholder, then uses only the latest same-model input wh
   await drain($.turn.step(STEP))
   expect(await has(ui, /~5%/)).toBe(true)
   expect(await has(ui, /52k\/1M/)).toBe(true)
+  await ui.unmount()
+})
+
+test('token groups and in/out labels have visibly distinct foreground colors', async ($, on) => {
+  world(on)
+  model(on)
+  await $.session.start(START)
+  await drain($.turn.step(STEP))
+  const ui = await mount($)
+  const drawn = JSON.stringify(await ui.drawn())
+  const colors = ['cache', 'last', 'session', 'in', 'out'].map(label =>
+    new RegExp(`"color":"(#[0-9a-f]{6})"[^}]*}[^}]*" ?${label}(?: "|"," ")`).exec(drawn)?.[1],
+  )
+  expect(colors.every(Boolean)).toBe(true)
+  expect(new Set(colors).size).toBe(5)
+  await ui.unmount()
+})
+
+test('keeps metric placeholders for missing measurements without inventing zero throughput', async ($, on) => {
+  world(on, { usage: false })
+  model(on, { ...USAGE_OF, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+  await $.session.start(START)
+  const ui = await mount($)
+  expect(await has(ui, /cost~ —.*up —.*api —/)).toBe(true)
+  expect(await has(ui, /cache —/)).toBe(true)
+  expect(await has(ui, /session in — out —/)).toBe(true)
+  for (let i = 0; i < 3; i++) await drain($.turn.step(STEP))
+  expect(await has(ui, /last in — out —/)).toBe(true)
+  expect(await has(ui, /tpot —.*tps —/)).toBe(true)
+  expect(await has(ui, /p50×3.*tps~ —/)).toBe(true)
+  expect(await has(ui, /3 req/)).toBe(true)
+  await ui.unmount()
+})
+
+test('a zero-usage response leaves the last measured context input available', async ($, on) => {
+  world(on, { missingContext: true })
+  let input = 92_013
+  on('turn.step', async function* (_: unknown, e: { turnId: string }) {
+    yield { kind: 'text' as const, index: 0, text: 'hello' }
+    return { turnId: e.turnId, index: 0, answer: 'hello', toolUses: [], stopReason: 'end_turn' as const,
+      usage: { ...USAGE_OF, input_tokens: input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+  })
+  await $.session.start(START)
+  const ui = await mount($)
+  await drain($.turn.step(STEP))
+  input = 0
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /ctx unavailable/)).toBe(false)
+  expect(await has(ui, /last 92k\/1M/)).toBe(true)
+  await drain($.turn.step({ ...STEP, model: 'other-model' }))
+  expect(await has(ui, /ctx unavailable/)).toBe(true)
   await ui.unmount()
 })
 
