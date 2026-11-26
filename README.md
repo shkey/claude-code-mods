@@ -1,12 +1,14 @@
-# Claude Code mods
+# Claude Code mods: statusline, prompt timeline, and image preview
 
-A marketplace for Claude Code terminal mods. Tested with Claude Code 2.1.332. The mods can be installed separately.
+An independent plugin marketplace for the Claude Code terminal. See context and token usage at a glance, jump back to earlier prompts and replies, or preview pasted images before sending. Install only the plugins you want.
 
-| Mod | What it does |
+| Plugin | What it does |
 | --- | --- |
-| [status-band](plugins/status-band/README.md) | Session title, recap, context use, request timing, tool activity, agents, and Git above the prompt. |
-| [prompt-timeline](plugins/prompt-timeline/README.md) | A right-hand timeline of text prompts. Click a tick to jump to the corresponding message. |
-| [image-preview](plugins/image-preview/README.md) | Hover a pasted image label to preview the image; click to open the original in the system viewer. |
+| [status-band](plugins/status-band/README.md) | A statusline above the prompt with context usage, token counts, request timing, tool activity, subagents, and Git status. |
+| [prompt-timeline](plugins/prompt-timeline/README.md) | A sidebar for conversation navigation. Click a prompt or reply to jump to its message in the current view. |
+| [image-preview](plugins/image-preview/README.md) | Hover a pasted image label to preview it. Click to open the original in your system viewer. |
+
+Tested with Claude Code 2.1.332. Prompt navigation and image hover use the fullscreen terminal renderer.
 
 ## Install
 
@@ -47,7 +49,7 @@ See the [status-band guide](plugins/status-band/README.md) for all rows and comm
 
 ### prompt-timeline
 
-Click a tick in the fullscreen terminal's right-hand pane to reveal the original prompt. Scroll within the pane to see more ticks. Use the native close button to hide it. To reopen it, run:
+Click a prompt in the fullscreen terminal's right-hand pane to jump to it, or click `回复` to jump to its first text reply. After compaction, older entries can remain in the timeline even if Claude Code no longer displays those messages. Scroll within the pane to see more entries. Use the native close button to hide it. To reopen it, run:
 
 ```text
 /prompt-timeline
@@ -59,7 +61,7 @@ On Claude Code 2.1.332, the pane opens automatically at 144 columns or more. At 
 
 Paste an image in fullscreen mode. Hover its `[Image #N]` label above the input to preview it. Move away to dismiss the preview, or click the label to open the original. Hover is also available on supported image labels in sent messages. Mouse and image rendering support depend on the terminal.
 
-The `window` setting defaults to `true`: where supported, the mod can fall back to a floating desktop window. Set it to `false` to keep previews in the terminal. For an existing installation, open the configuration dialog:
+The `window` setting defaults to `true`: where supported, the mod can fall back to a floating desktop window. Set it to `false` to keep hover previews in the terminal when there is room. If there is no room, you can still click the label to open the image. For an existing installation, open the configuration dialog:
 
 ```text
 /plugin configure image-preview@claude-code-mods
