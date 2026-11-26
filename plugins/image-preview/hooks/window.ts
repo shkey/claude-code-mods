@@ -8,6 +8,7 @@
 /** macOS: JavaScript for Automation, run by `osascript`, drawing an AppKit panel. */
 export const MACOS = String.raw`
 ObjC.import('Cocoa')
+ObjC.import('QuartzCore')
 
 function run () {
   const env = $.NSProcessInfo.processInfo.environment
@@ -59,12 +60,22 @@ function run () {
   backdrop.wantsLayer = true
   backdrop.layer.cornerRadius = 10
   backdrop.layer.masksToBounds = true
-  const view = $.NSImageView.alloc.initWithFrame($.NSMakeRect(pad, pad, width, height))
-  view.image = image
-  view.imageScaling = 3
+  // Draw in AppKit's graphics context: assigning a bridged CGImage to CALayer.contents left it blank.
+  let drawn = false
+  ObjC.registerSubclass({
+    name: 'ClaudeImagePreviewView',
+    superclass: 'NSView',
+    methods: {
+      'drawRect:': { implementation: function () { drawn = pixels.drawInRect(this.bounds) } }
+    }
+  })
+  const view = $.ClaudeImagePreviewView.alloc.initWithFrame($.NSMakeRect(pad, pad, width, height))
   backdrop.addSubview(view)
   panel.contentView = backdrop
   panel.orderFrontRegardless
+  panel.display
+  $.CATransaction.flush
+  if (!drawn) { panel.orderOut(null); say('error: cannot draw the image'); return }
   say('shown')
   const end = Date.now() + (Number(read('IMAGE_PREVIEW_LIFE')) || 120) * 1000
   while (Date.now() < end) {

@@ -88,7 +88,7 @@ const TOOLS: Record<Platform, Tool[]> = { macos: ['sips', 'magick', 'convert'], 
 // The converter that worked here.
 let tool: Tool | undefined
 // Where a card opens in a window of its own, by the pointer: the system whose program shows it.
-// Unset, the terminal draws the card. And the window open now, if any.
+// The open window, if any, is tracked separately.
 let windowing: Platform | undefined
 let window: { id: number; isOpen: boolean } | undefined
 // The pictures read, shrunk, by id; the cells drawn of them, by id and size.
@@ -534,7 +534,6 @@ async function stepDown ($: Engine) {
     return
   }
   graphics = 'none'
-  windowing = canWindow ? await windowSystem($) : undefined
   $.ui.invalidate('ui.render')
   await change($, now => (now && now.edge !== 'window' ? placeFor(now.id, now.target) : now))
 }
@@ -589,13 +588,14 @@ function transcriptOrder () {
  * covers the chip that opened it, and covers only rows drawn before the one it stands on (a row drawn
  * after paints over it).
  *
- * From the band's chip: over the rows above the end of the lowest row on screen; in the band
- * itself where too few rows show. From the list under a sent prompt (`prompt`, its requestId): over
+ * From the band's chip: over the rows above the end of the lowest row on screen; in a window
+ * when too few rows show, or no hover card if a window is unavailable. From the list under a sent prompt (`prompt`, its requestId): over
  * the rows above the prompt, or over those under its list, whichever holds more; none where neither
  * holds a card. The rows counted are the rows the mod knows of, so a count is never too high.
  */
 function placeOf (id: number, target: string, prompt?: string): Shown | null {
-  if (windowing) return { id, target, host: null, rows: 0, edge: 'window' }
+  const inWindow: Shown | null = windowing ? { id, target, host: null, rows: 0, edge: 'window' } : null
+  if (graphics === 'none' && inWindow) return inWindow
   const order = transcriptOrder()
   const showing = [...rows]
     .filter(([, row]) => !!row.onScreen)
@@ -617,7 +617,7 @@ function placeOf (id: number, target: string, prompt?: string): Shown | null {
     const above = !lowest ? 0 : (isFull ? room : Math.min(room, HEADER_ROWS + count(showing))) - 1
     return above >= MIN_FLOAT_ROWS
       ? { id, target, host: lowest![0], rows: above, edge: 'last' }
-      : { id, target, host: null, rows: 0, edge: 'last' }
+      : inWindow
   }
   const at = showing.findIndex(([requestId]) => requestId === prompt)
   if (at === -1) return null
@@ -707,7 +707,7 @@ export const register: Register = (on, options) => {
     // the pointer, on the desktop the session runs on: not over SSH, where that is another machine's.
     const isRemote = sshConnection !== undefined || sshTty !== undefined
     canWindow = options.window !== false && e.isInteractive && !isRemote
-    windowing = canWindow && graphics === 'none' ? await windowSystem($) : undefined
+    windowing = canWindow ? await windowSystem($) : undefined
     // A reload starts with an empty cache: read again what is in the box.
     await follow($)
     const [initialDraft, initialShown, box] = await Promise.all([read($, draft), read($, shown), $.prompt.read()])
@@ -815,27 +815,20 @@ export const register: Register = (on, options) => {
   })
 
   // Above the prompt: the draft's images, each a chip that opens its card while the pointer is on
-  // it. The card floats over the transcript; where too few of its rows show, the band holds it.
+  // it. The card floats over the transcript when it fits.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Off fullscreen the terminal reports no pointer: nothing could be hovered.
     if (e.surface !== 'terminal' || e.props.hasSurvey || e.viewport?.isFullscreen === false) return next(e)
-    const [ids, now] = await Promise.all([read($, draft), read($, shown)])
-    const inBand = now && now.host === null && now.edge !== 'window' ? now.id : undefined
-    if (ids.length === 0 && inBand === undefined) return next(e)
+    const ids = await read($, draft)
+    if (ids.length === 0) return next(e)
     if (e.viewport) screenRows = e.viewport.rows
 
     const ui = $.ui.resolve(e)
     const { Box, Client, Text } = ui
     const below: RenderElement = await next(e)
-    const bounds = {
-      columns: Math.max(8, Math.min(MAX_COLUMNS, e.props.bodyColumns)),
-      rows: Math.max(4, Math.min(MAX_ROWS, e.props.maxRows - 1))
-    }
-    if (inBand !== undefined) void check($, e.requestId, inBand).catch(() => undefined)
     return (
       <Box flexDirection="column">
         {below}
-        {inBand !== undefined && card(ui, await read($, pictures), inBand, bounds)}
         {ids.length > 0 && (
           <Box flexDirection="row" columnGap={1}>
             {ids.map(id => <Client key={`chip:${id}`} module="./chip.tsx" props={{ label: `[Image #${id}]` }} />)}

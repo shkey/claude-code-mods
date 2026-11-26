@@ -106,7 +106,7 @@ Thanks to the maintainers of these projects. The source import is listed separat
 
 | Project | Relationship |
 | --- | --- |
-| [Better Claude / Image Preview](https://github.com/midudev/better-claude/tree/79282ad5c55313a65ab5e0de103d5eda99292e4c/plugins/image-preview) by midudev | **Source import.** This repository ships the upstream plugin pinned at `79282ad5c55313a65ab5e0de103d5eda99292e4c`. The original README, tests, and [MIT license and copyright notice](plugins/image-preview/LICENSE) are preserved. |
+| [Better Claude / Image Preview](https://github.com/midudev/better-claude/tree/79282ad5c55313a65ab5e0de103d5eda99292e4c/plugins/image-preview) by midudev | **Source import.** This repository ships the upstream plugin pinned at `79282ad5c55313a65ab5e0de103d5eda99292e4c`. The [MIT license and copyright notice](plugins/image-preview/LICENSE) are preserved. Local differences: Windows/WSL viewer launch and no in-band hover fallback when the transcript is short. |
 | [prompt-rail](https://github.com/oikon48/prompt-rail) by oikon48 | **Design reference.** Inspired `prompt-timeline`'s docked prompt markers and click-to-jump interaction. |
 | [Cockpit](https://github.com/MatheusChiodi/cockpit) by MatheusChiodi | **Design reference.** Inspired `status-band`'s theme-based colors, thin gauges, and Git summary. |
 | [Claude Flightdeck](https://github.com/scasella/claude-flightdeck) by scasella | **Design reference.** Inspired `status-band`'s subagent controls and permission summaries. |

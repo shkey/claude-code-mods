@@ -130,7 +130,7 @@ function keyed (tree: RenderElement, key: string): Drawn | undefined {
 // The cards drawn in the terminal, not in a window of their own.
 const cells = { options: { window: false } }
 
-const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} }
+const BAND = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 }, view: {} }
 const SCREEN = { columns: 120, rows: 40, isFullscreen: true }
 type Shown = { first: number; last: number; of: number } | null
 
@@ -199,20 +199,21 @@ test('a pasted image gets a chip above the prompt, its card shown while the poin
   const w = world(on, { draft: 'what is wrong here? [Image #1]' })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
 
   expect(await ui.find({ key: 'chip:1' })).toMatchObject({ type: 'Client' })
   expect(await ui.find({ type: 'Text', text: '[Image #1]', in: 'chip:1' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'hover to preview · click to open' })).toBeDefined()
-  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(await host.find({ key: 'image-1' })).toBeUndefined()
 
   await point(ui, 'chip:1')
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster', props: { columns: 2, rows: 1 } })
-  expect(await ui.find({ type: 'Text', text: /\[Image #1\] PNG · 300 KB/ })).toBeDefined()
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Raster', props: { columns: 2, rows: 1 } })
+  expect(await host.find({ type: 'Text', text: /\[Image #1\] PNG · 300 KB/ })).toBeDefined()
   expect(w.runs).toContainEqual(['sips', '-s', 'format', 'bmp', '-Z', '800', `${FOLDER}/images/1.png`, '--out', `${FOLDER}/image-preview/1.bmp`])
 
   await point(ui, 'chip:1', 'leave')
-  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(await host.find({ key: 'image-1' })).toBeUndefined()
 })
 
 test('an image pasted while the session runs shows within half a second', cells, async ($, on) => {
@@ -251,9 +252,10 @@ test('an image the session never stored says so', cells, async ($, on) => {
   const w = world(on, { files: {}, draft: '[Image #7]' })
   await startSession($)
   await w.clock.advance(5000)
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:7')
-  expect(await ui.find({ type: 'Text', text: /^\[Image #7\] no preview: not stored in this session/ })).toBeDefined()
+  expect(await host.find({ type: 'Text', text: /^\[Image #7\] no preview: not stored in this session/ })).toBeDefined()
 })
 
 test('sending the prompt takes the chips away, and the card a chip opened', cells, async ($, on) => {
@@ -292,16 +294,17 @@ test('after /clear the new session reads its images again', cells, async ($, on)
   const w = world(on, { draft: '[Image #1]' })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
-  expect(await ui.find({ type: 'Text', text: /\[Image #1\] PNG/ })).toBeDefined()
+  expect(await host.find({ type: 'Text', text: /\[Image #1\] PNG/ })).toBeDefined()
 
   w.session.id = 's-2'
   await w.clock.advance(5000)
-  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(await host.find({ key: 'image-1' })).toBeUndefined()
   await point(ui, 'chip:1', 'leave')
   await point(ui, 'chip:1')
-  expect(await ui.find({ type: 'Text', text: /^\[Image #1\] no preview: not stored in this session/ })).toBeDefined()
+  expect(await host.find({ type: 'Text', text: /^\[Image #1\] no preview: not stored in this session/ })).toBeDefined()
 })
 
 test('over a transcript that fills the rows, a chip opens its card over the lowest row, the band left alone', cells, async ($, on) => {
@@ -392,7 +395,7 @@ test('the card a sent prompt opened closes once the transcript moves: its chip m
   expect(await message.find({ key: 'float-1' })).toBeUndefined()
 })
 
-test('on a screen too short to float a card over the transcript, the band holds it', cells, async ($, on) => {
+test('a short transcript does not grow the band when window previews are disabled', cells, async ($, on) => {
   const w = world(on, { draft: '[Image #1]' })
   await startSession($)
   await w.clock.settle()
@@ -401,28 +404,47 @@ test('on a screen too short to float a card over the transcript, the band holds 
   await point(ui, 'chip:1')
 
   expect(await only.find({ key: 'float-1' })).toBeUndefined()
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(await ui.find({ key: 'chip:1' })).toBeDefined()
+  expect(w.windows).toHaveLength(0)
+})
+
+test('an empty transcript on a graphics terminal uses a window without growing the band', async ($, on) => {
+  const w = world(on, { draft: '[Image #1]', env: { TERM_PROGRAM: 'ghostty' } })
+  await startSession($)
+  await w.clock.settle()
+  const ui = await band($)
+  await point(ui, 'chip:1')
+  await w.clock.advance(100)
+
+  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(w.windows.map(window => window.env.IMAGE_PREVIEW_FILE)).toEqual([`${FOLDER}/images/1.png`])
+  await point(ui, 'chip:1', 'leave')
+  await w.clock.advance(100)
+  expect(w.windows[0]!.isEnded).toBe(true)
 })
 
 test('a card writes every cell it covers, caption and all, so the transcript under it does not show through', cells, async ($, on) => {
   const w = world(on, { draft: '[Image #1]' })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
-  const caption = await ui.find({ type: 'Text', text: /^\[Image #1\] PNG · 300 KB/ })
+  const caption = await host.find({ type: 'Text', text: /^\[Image #1\] PNG · 300 KB/ })
   expect(caption).toMatchObject({ text: '[Image #1] PNG · 300 KB'.padEnd(20) })
   // A picture two cells wide under a caption of 23: centered, the cells beside it written blank.
-  expect((await ui.findAll({ type: 'Text', text: /^ +$/ })).map(found => found.text)).toEqual([' '.repeat(10), ' '.repeat(11)])
+  expect((await host.findAll({ type: 'Text', text: /^ +$/ })).map(found => found.text)).toEqual([' '.repeat(10), ' '.repeat(11)])
 })
 
 test('told the terminal draws pictures, the card sends it the picture as PNG bytes', cells, async ($, on) => {
   const w = world(on, { draft: '[Image #1]', env: { CLAUDE_CODE_FORCE_TERMINAL_IMAGES: '1' } })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { png: PNG } } })
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { png: PNG } } })
   expect(w.runs).toContainEqual(['sips', '-s', 'format', 'png', '-Z', '1024', `${FOLDER}/images/1.png`, '--out', `${FOLDER}/image-preview/1.view.png`])
 })
 
@@ -434,9 +456,10 @@ test('in Ghostty the card has the terminal read the picture\'s file, and asks it
   const w = world(on, { draft: '[Image #1]', env: { TERM_PROGRAM: 'ghostty' } })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { file: `${FOLDER}/images/1.png`, format: 'png' } } })
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { file: `${FOLDER}/images/1.png`, format: 'png' } } })
   await w.clock.advance(100)
   expect(w.blits).toEqual([{ file: `${FOLDER}/images/1.png`, format: 'png' }])
 
@@ -450,11 +473,12 @@ test('a terminal that cannot read the picture\'s file (Ghostty in a Flatpak) is 
   const w = world(on, { draft: '[Image #1]', system: 'Linux', env: { TERM_PROGRAM: 'ghostty', TERM: 'xterm-256color' }, deny: source => ('file' in source ? NO_FILES : undefined) })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
   await w.clock.advance(100)
   expect(w.runs).toContainEqual(['magick', `${FOLDER}/images/1.png`, '-resize', '1024x1024>', `PNG:${FOLDER}/image-preview/1.view.png`])
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { png: PNG } } })
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Image', props: { source: { png: PNG } } })
   await w.clock.advance(100)
   expect(w.blits).toEqual([{ file: `${FOLDER}/images/1.png`, format: 'png' }, { png: PNG }])
 })
@@ -463,24 +487,26 @@ test('a terminal that draws no picture it is sent has the card open in a window 
   const w = world(on, { draft: '[Image #1]', system: 'Linux', env: { TERM_PROGRAM: 'ghostty', DISPLAY: ':0' }, deny: () => NO_PICTURES })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
   await w.clock.advance(300)
   expect(w.blits.map(source => Object.keys(source)[0])).toEqual(['file', 'png'])
   expect(w.windows).toHaveLength(1)
   expect(w.windows[0]!.env.IMAGE_PREVIEW_FILE).toBe(`${FOLDER}/image-preview/1.window.png`)
-  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
+  expect(await host.find({ key: 'image-1' })).toBeUndefined()
 })
 
 test('without the window, a terminal that draws no picture it is sent gets the card in cells', cells, async ($, on) => {
   const w = world(on, { draft: '[Image #1]', env: { TERM_PROGRAM: 'ghostty' }, deny: () => NO_PICTURES })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
   await w.clock.advance(300)
   expect(w.windows).toHaveLength(0)
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
 })
 
 test('moving from one listed image to the next opens the next card, the leave and the enter in either order', cells, async ($, on) => {
@@ -595,14 +621,14 @@ test('moving from one image to the next ends the first window and opens the next
   expect(w.windows.map(opened => [opened.env.IMAGE_PREVIEW_FILE, opened.isEnded])).toEqual([[`${FOLDER}/images/1.png`, true], [`${FOLDER}/images/2.png`, false]])
 })
 
-test('a system that shows no window has the terminal draw the card', async ($, on) => {
+test('a system that shows no window leaves the band alone', async ($, on) => {
   const w = world(on, { draft: '[Image #1]', window: 'error' })
   await startSession($)
   await w.clock.settle()
   const ui = await band($)
   await point(ui, 'chip:1')
   await w.clock.advance(100)
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
 
   // And the next card too, with no window tried.
   await point(ui, 'chip:1', 'leave')
@@ -610,14 +636,14 @@ test('a system that shows no window has the terminal draw the card', async ($, o
   expect(w.windows).toHaveLength(1)
 })
 
-test('over SSH the window would open on the other machine: the terminal draws the card', async ($, on) => {
+test('over SSH the window would open on the other machine: the band stays unchanged', async ($, on) => {
   const w = world(on, { draft: '[Image #1]', env: { SSH_CONNECTION: '10.0.0.2 51000 10.0.0.1 22' } })
   await startSession($)
   await w.clock.settle()
   const ui = await band($)
   await point(ui, 'chip:1')
   expect(w.windows).toHaveLength(0)
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
 })
 
 test('on Linux with a display and Tk, the window is Tk\'s, showing the picture shrunk to a PNG', async ($, on) => {
@@ -632,14 +658,14 @@ test('on Linux with a display and Tk, the window is Tk\'s, showing the picture s
   expect(w.windows[0]!.env.IMAGE_PREVIEW_FILE).toBe(`${FOLDER}/image-preview/1.window.png`)
 })
 
-test('on Linux with no display the terminal draws the card', async ($, on) => {
+test('on Linux with no display the band stays unchanged', async ($, on) => {
   const w = world(on, { draft: '[Image #1]', system: 'Linux' })
   await startSession($)
   await w.clock.settle()
   const ui = await band($)
   await point(ui, 'chip:1')
   expect(w.windows).toHaveLength(0)
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await ui.find({ key: 'image-1' })).toBeUndefined()
 })
 
 // %TEMP%, as a path the engine under test (on macOS or Linux) can resolve.
@@ -702,12 +728,13 @@ test('under WSL without ImageMagick, Windows\' PowerShell shrinks the picture fo
   const w = world(on, { draft: '[Image #1]', system: 'Linux', env: WSL, missing: ['magick', 'convert'] })
   await startSession($)
   await w.clock.settle()
+  const host = await reply($, 'a-host', { first: 0, last: 19, of: 20 })
   const ui = await band($)
   await point(ui, 'chip:1')
   const at = w.runs.findIndex(argv => argv[0] === 'powershell.exe')
   expect(at).toBeGreaterThan(-1)
   expect(w.runEnvs[at]).toMatchObject({ IMAGE_PREVIEW_FILE: `${FOLDER}/images/1.png`, IMAGE_PREVIEW_OUT: `${FOLDER}/image-preview/1.bmp`, WSLENV: 'WT_SESSION:IMAGE_PREVIEW_FILE/p:IMAGE_PREVIEW_OUT/p:IMAGE_PREVIEW_FORMAT:IMAGE_PREVIEW_SIZE' })
-  expect(await ui.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
+  expect(await host.find({ key: 'image-1' })).toMatchObject({ type: 'Raster' })
 })
 
 test('under WSL a click opens the image in Windows\' viewer, through powershell.exe, never a new Explorer', async ($, on) => {

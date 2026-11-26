@@ -28,9 +28,11 @@ The picture shows as it is, sharp: a screenshot of text reads as it was. It is s
 | WSL | The same Windows Forms window, run by `powershell.exe` from WSL, by the Windows pointer | Nothing to install |
 | Linux | A Tk tooltip window on X11, the picture shrunk to a PNG | Python's Tk (`python3-tk` on Debian and Ubuntu, `python3-tkinter` on Fedora) and ImageMagick |
 
-Turn it off with the **Preview in a window** option (`/config`) to keep the preview in the terminal. Over SSH the window would open on the other machine, so there the terminal draws it. Where the window's program cannot show one, the terminal draws the previews for the rest of the session.
+Turn it off with the **Preview in a window** option (`/config`) to keep the preview in the terminal. Over SSH the desktop preview is disabled because it would open on the other machine. If the window fails, subsequent previews use the terminal when there is room.
 
 ## In the terminal
+
+This fork keeps the upstream floating card when it fits above the prompt. When a draft has too little transcript space, the preview uses the upstream pointer window instead of adding rows to the status band. If the window is disabled or unavailable, click the chip to open the image.
 
 In Ghostty and kitty the terminal draws the picture itself, through the kitty graphics protocol, reading it from its file. The first card asks Claude Code whether the terminal drew it: one that cannot read the file (one in a sandbox with a `/tmp` of its own, as Ghostty installed as a Flatpak) is sent the picture's bytes instead, and one that draws no picture at all gets the window, or the cells. Elsewhere, without the window, it is drawn in colored block elements: each cell is sampled at eight by eight points, in linear light, and drawn with the half, eighth or quarter block (`▀ ▂ ▎ ▚ …`) that splits those points best, in their two colors, in any terminal with true color. Cells are coarse: a screenshot of text shows its layout, not text you can read.
 
@@ -44,7 +46,7 @@ In Ghostty and kitty the terminal draws the picture itself, through the kitty gr
 [Image #1] hover to preview · click to open
 ```
 
-The card floats over the transcript and moves nothing: the transcript does not scroll, the prompt does not jump, and the `[Image #N]` that opened it stays uncovered. A card from the row above the prompt floats over the lowest rows of the transcript; on a screen too short for that, it opens in that row, which grows to hold it. One from a sent prompt opens above the prompt or under its list, wherever there are more rows; where neither has six, it does not open.
+The card floats over the transcript and moves nothing: the transcript does not scroll, the prompt does not jump, and the `[Image #N]` that opened it stays uncovered. A card from the row above the prompt floats over the lowest rows of the transcript; when there is too little room, it uses the pointer window or leaves the band unchanged if the window is unavailable. One from a sent prompt opens above the prompt or under its list, wherever there are more rows; where neither has six, it does not open.
 
 Warp speaks the kitty graphics protocol, but not the Unicode placeholders Claude Code draws pictures with, so Warp cannot draw it in the terminal. `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` makes this mod send the picture to a terminal Claude Code does not know draws pictures; it only helps in one that supports those placeholders. It sends a PNG of up to 1024 pixels and 2 MB; a larger one is drawn in cells.
 

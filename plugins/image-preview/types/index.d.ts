@@ -5,7 +5,7 @@ export type Picture =
 
 /**
  * The card on show: its image; the pointer target that showed it (`<site>/<chip key>`); the
- * transcript row it floats on, by `requestId` (null: the band holds it, or a window); how many rows
+ * transcript row it floats on, by `requestId` (null for a window); how many rows
  * it may take; and whether it stands on that row's last row on screen, ends just above its first,
  * or is a window of its own, outside the terminal.
  */
