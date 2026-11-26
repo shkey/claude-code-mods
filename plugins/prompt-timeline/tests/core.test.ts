@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { activePrompt, indexRows, parseRow, preview, rowKey } from '../hooks/core'
+import { activePrompt, jumpNotice, indexRows, parseRow, preview, rowKey } from '../hooks/core'
 
 const user = (uuid: string, parentUuid: string | null, text: string, extra = {}) =>
   ({ uuid, parentUuid, type: 'user', message: { content: text }, ...extra })
@@ -55,4 +55,27 @@ test('anchors each turn to its first visible assistant text, skipping tool-only 
     answer('error', 'tool', 'error', { isApiErrorMessage: true }), answer('answer', 'error', 'first answer'),
     answer('later', 'answer', 'more'), user('two', 'later', 'second'), reply('pending', 'two'))
   expect(history.prompts.map(p => [p.id, p.replyId])).toEqual([['one', 'answer'], ['two', undefined]])
+})
+
+
+test('explains only confirmed compacted targets and leaves retained replies eligible', () => {
+  const history = index(user('old', null, 'old'), reply('old-reply', 'old'),
+    user('later', 'old-reply', 'later'), reply('kept', 'later'),
+    { uuid: 'boundary', logicalParentUuid: 'kept', type: 'system', subtype: 'compact_boundary',
+      compactMetadata: { preservedSegment: { headUuid: 'kept', tailUuid: 'kept' }, preservedMessages: { allUuids: ['kept'] } } },
+    user('new', 'boundary', 'new'))
+  expect(history.prompts.map(p => p.id)).toEqual(['old', 'later', 'new'])
+  const deny = 'nothing drawn under that requestId'
+  expect(jumpNotice(history, 'old-reply', deny)).toContain('Ctrl+O')
+  expect(jumpNotice(history, 'later', deny)).toContain('压缩后')
+  for (const id of ['kept', 'new', 'unknown']) expect(jumpNotice(history, id, deny)).not.toContain('压缩')
+  expect(jumpNotice(history, 'old', 'no-surface')).not.toContain('压缩')
+})
+
+test('does not attribute ambiguous compaction metadata to compaction', () => {
+  const history = index(user('old', null, 'old'),
+    { uuid: 'boundary', logicalParentUuid: 'old', type: 'system', subtype: 'compact_boundary',
+      compactMetadata: { preservedSegment: { headUuid: 'unknown', tailUuid: 'unknown' } } },
+    user('new', 'boundary', 'new'))
+  expect(jumpNotice(history, 'old', 'nothing drawn under that requestId')).not.toContain('压缩')
 })

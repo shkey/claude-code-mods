@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
-import { activePrompt, indexRows, parseRow, preview, promptText, rowKey } from './core'
+import { activePrompt, indexRows, jumpNotice, parseRow, preview, promptText, rowKey } from './core'
 import type { Prompt } from './core'
 
 const PANE = 'prompt-timeline'
@@ -160,7 +160,7 @@ export const register: Register = on => {
     if (!id) return result
     const target = drawn.get(rowKey(id)) ?? id
     const jump = await $.ui.scroll({ to: { requestId: target }, block: 'start' })
-    if (jump.deny) $.ui.toast(`Cannot jump to this message: ${jump.deny}`)
+    if (jump.deny) $.ui.toast(jumpNotice(index, id, jump.deny))
     else {
       visible.clear()
       current = prompt.id

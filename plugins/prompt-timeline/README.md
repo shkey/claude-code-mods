@@ -4,6 +4,8 @@ A right-hand timeline for the main conversation in Claude Code's fullscreen term
 
 Tested with Claude Code 2.1.332. The shared pane uses the renderer's width rules: an automatic open requires at least 144 columns on this version. At 110–143 columns, run `/prompt-timeline` to open it. Below 110 columns or in classic mode the mod does not render the timeline. The plugin requests the minimum dock width of 24 columns. A width remembered by Claude Code takes priority. If the dock is wider, drag its left divider to the right. The pane shares space with other docked panes; it does not replace the native scrollbar.
 
+After compaction, older prompts can remain in the timeline even when Claude Code no longer renders their messages. If a jump fails and the transcript confirms that the target was not retained, the mod points you to the local transcript and the `Ctrl+O` compaction summary. Retained messages still use the normal jump path.
+
 ## Try locally
 
 From the marketplace checkout:

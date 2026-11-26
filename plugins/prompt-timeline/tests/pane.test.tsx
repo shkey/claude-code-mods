@@ -70,3 +70,26 @@ test('restores distinct prompts, updates on scroll, and clears state when the se
   await reply.unmount()
   await ui.unmount()
 })
+
+
+test('keeps compacted prompts and retained replies in the timeline', async ($, on) => {
+  const clock = mock.clock(on)
+  const transcript = row('old', null, 'user') + row('retained', 'old', 'assistant') +
+    JSON.stringify({ uuid: 'boundary', logicalParentUuid: 'retained', type: 'system', subtype: 'compact_boundary',
+      compactMetadata: { preservedMessages: { allUuids: ['retained'] } } }) + '\n' + row('new', 'boundary', 'user')
+  const bytes = new TextEncoder().encode(transcript)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.info', () => ({ value: { transcriptPath: '/synthetic.jsonl' } as never }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.stat', () => ({ value: { size: bytes.length } as never }))
+  on('fs.read', () => ({ value: { base64: (bytes as Uint8Array & { toBase64(): string }).toBase64() } }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  await $.session.start({ cwd: '/fixture', surface: 'terminal', isInteractive: true })
+  await clock.advance(750)
+  const ui = await $.ui.mount(pane)
+  for (const key of ['jump:old', 'reply:old', 'jump:new']) {
+    expect(await ui.find({ type: 'Button', key })).toBeDefined()
+  }
+  await ui.unmount()
+})
