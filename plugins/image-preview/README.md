@@ -32,7 +32,7 @@ Turn it off with the **Preview in a window** option (`/config`) to keep the prev
 
 ## In the terminal
 
-This fork keeps the upstream floating card when it fits above the prompt. When a draft has too little transcript space, the preview uses the upstream pointer window instead of adding rows to the status band. If the window is disabled or unavailable, click the chip to open the image.
+When Status Band is also installed, the draft image labels appear immediately above it. This fork keeps the upstream floating card when it fits above the prompt. When a draft has too little transcript space, the preview uses the upstream pointer window instead of adding rows to the status band. If the window is disabled or unavailable, click the chip to open the image.
 
 In Ghostty and kitty the terminal draws the picture itself, through the kitty graphics protocol, reading it from its file. The first card asks Claude Code whether the terminal drew it: one that cannot read the file (one in a sandbox with a `/tmp` of its own, as Ghostty installed as a Flatpak) is sent the picture's bytes instead, and one that draws no picture at all gets the window, or the cells. Elsewhere, without the window, it is drawn in colored block elements: each cell is sampled at eight by eight points, in linear light, and drawn with the half, eighth or quarter block (`▀ ▂ ▎ ▚ …`) that splits those points best, in their two colors, in any terminal with true color. Cells are coarse: a screenshot of text shows its layout, not text you can read.
 

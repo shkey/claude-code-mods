@@ -814,6 +814,17 @@ export const register: Register = (on, options) => {
     return float($, e, drawn, overlays)
   })
 
+  // Marketplace load order is not layout order. Move only our row, leaving other mods in place.
+  on('ui.render', { component: 'AbovePromptList' }, ($, e, next) => {
+    if (e.surface !== 'terminal') return next(e)
+    const rows = [...e.props.rows]
+    const image = rows.findIndex(row => row.plugin === 'image-preview')
+    const status = rows.findIndex(row => row.plugin === 'status-band')
+    if (status < 0 || image <= status) return next(e)
+    rows.splice(status, 0, rows.splice(image, 1)[0]!)
+    return next({ ...e, props: { ...e.props, rows } })
+  })
+
   // Above the prompt: the draft's images, each a chip that opens its card while the pointer is on
   // it. The card floats over the transcript when it fits.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

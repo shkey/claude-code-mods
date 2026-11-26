@@ -163,6 +163,19 @@ const reply = ($: Engine, requestId: string, onScreen: Shown, viewport = SCREEN)
 const point = (ui: { pointer: (event: { type: 'enter' | 'leave'; x: number; y: number; in?: string }) => Promise<void> }, chip: string, type: 'enter' | 'leave' = 'enter') =>
   ui.pointer({ type, x: 0, y: 0, in: chip })
 
+test('puts the image row immediately above status-band without moving unrelated rows', async ($, on) => {
+  let order: string[] = []
+  on('ui.render', { component: 'AbovePromptList' }, ($, e) => {
+    order = e.props.rows.map(row => row.plugin)
+    return $.ui.resolve(e).Box({})
+  })
+  await $.ui.mount({
+    plugin: 'image-preview', surface: 'terminal', component: 'AbovePromptList',
+    props: { ...BAND, rows: ['first', 'status-band', 'other', 'image-preview', 'last'].map(plugin => ({ plugin, tree: { type: 'engine', ref: 0 } })) }
+  })
+  expect(order).toEqual(['first', 'image-preview', 'status-band', 'other', 'last'])
+})
+
 test('reads a BMP bottom-up into RGBA, top row first', () => {
   const { width, height, data } = parseBmp(bmp([[RED, BLUE], [BLUE, RED]]))
   expect([width, height]).toEqual([2, 2])
