@@ -72,8 +72,8 @@ const measure = atom({ plugin: 'status-band', key: 'measure' } as const, null as
 const identity = atom({ plugin: 'status-band', key: 'identity' } as const, { model: '', effort: null, cwd: '', root: '', version: '', customTitle: '', aiTitle: '', recap: '', thinking: false, cacheTtl: '' } as Identity)
 const GIT_PANE = 'status-band-git'
 const GIT_PAGE = 30
-const gitHistory = atom({ plugin: 'status-band', key: 'gitHistory' } as const,
-  { head: '', entries: [], more: false, loading: false, error: '' } as GitHistory)
+const gitHistory = atom({ plugin: 'status-band', key: 'gitHistoryStyledView' } as const,
+  { head: '', entries: [], more: false, loading: false, error: '', selected: null } as GitHistory)
 const git = atom({ plugin: 'status-band', key: 'git' } as const, null as GitInfo | null)
 const status = atom(
   { plugin: 'status-band', key: 'status' } as const,
@@ -113,6 +113,20 @@ const run = async ($: EngineInterface, args: readonly string[]): Promise<string 
 }
 
 // Pin the history to a single HEAD so new commits do not shift page offsets.
+const gitHash = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
+const gitText = (text: string) => text.replace(/[\p{Cc}\p{Bidi_Control}]/gu, ' ')
+// Fit mixed-width subjects before the host lays out a clickable row.
+const gitPreview = (text: string, columns: number): string => {
+  let out = '', beforeLast = '', used = 0
+  for (const ch of text) {
+    const width = ch <= '\x7e' ? 1 : 2
+    if (used + width > columns) return columns <= 0 ? '' : `${used < columns ? out : beforeLast}…`
+    beforeLast = out
+    out += ch
+    used += width
+  }
+  return out
+}
 let gitHistoryBusy = false
 const loadGitHistory = async ($: EngineInterface, restart: boolean): Promise<void> => {
   if (gitHistoryBusy) return
@@ -120,34 +134,81 @@ const loadGitHistory = async ($: EngineInterface, restart: boolean): Promise<voi
   try {
     const previous = await read($, gitHistory)
     if (!restart && !previous.more) return
-    const base = restart ? { head: '', entries: [], more: false, loading: true, error: '' } : { ...previous, loading: true, error: '' }
+    const base = restart ? { head: '', entries: [], more: false, loading: true, error: '', selected: null } : { ...previous, loading: true, error: '' }
     await update($, gitHistory, () => base)
     const head = restart ? (await run($, ['rev-parse', '--verify', 'HEAD']))?.trim() : base.head
-    if (!head || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head)) {
+    if (!head || !gitHash.test(head)) {
       await update($, gitHistory, () => ({ ...base, loading: false, error: 'No readable HEAD. Reopen history after the first commit.' }))
       return
     }
     const output = await run($, ['log', '--no-show-signature', '--no-notes', `--max-count=${GIT_PAGE + 1}`,
-      `--skip=${base.entries.length}`, '--format=%h%x09%as%x09%s', head, '--'])
+      `--skip=${base.entries.length}`, '--format=%H%x09%h%x09%as%x09%s', head, '--'])
     if (output === undefined) {
       await update($, gitHistory, () => ({ ...base, head, loading: false, error: 'Git log failed. Retry or reopen history.' }))
       return
     }
-    const page = output.split('\n').filter(Boolean).map(line => line.replace(/[^\S\n]+/g, ' ').replace(/[\p{Cc}\p{Bidi_Control}]/gu, ''))
-    await update($, gitHistory, () => ({ head, entries: [...base.entries, ...page.slice(0, GIT_PAGE)],
+    const page = output.split('\n').filter(Boolean).flatMap(line => {
+      const [hash, short, date, ...title] = line.split('\t')
+      return hash && gitHash.test(hash) && short && date ? [{ hash, short: gitText(short), date: gitText(date), title: gitText(title.join(' ').trim()) }] : []
+    })
+    await update($, gitHistory, state => ({ ...state, head, entries: [...base.entries, ...page.slice(0, GIT_PAGE)],
       more: page.length > GIT_PAGE, loading: false, error: '' }))
   } finally {
     gitHistoryBusy = false
   }
 }
 
+let openingGitHistory = false
 const openGitHistory = async ($: EngineInterface): Promise<void> => {
-  const opened = await $.ui.open({ id: GIT_PANE, title: 'Git history', columns: 54, rows: 14 })
-  if (!opened.isPlaced) {
-    $.ui.toast(`Git history pane unavailable: ${opened.reason}`)
-    return
+  if (openingGitHistory) return
+  openingGitHistory = true
+  try {
+    const pane = (await $.ui.panes()).find(p => p.id === GIT_PANE)
+    if (pane?.isShown) return
+    const args = { id: GIT_PANE, title: 'Git history', columns: 54, rows: 14 } as const
+    let opened = await $.ui.open(pane?.isPlaced ? { ...args, focus: true } : args)
+    if (pane?.isPlaced && opened.isPlaced && !(await $.ui.panes()).some(p => p.id === GIT_PANE && p.isShown)) {
+      // An existing background tab may be retitled without being raised.
+      await $.ui.close({ id: GIT_PANE })
+      opened = await $.ui.open(args)
+    }
+    if (!opened.isPlaced) {
+      $.ui.toast(`Git history pane unavailable: ${opened.reason}`)
+      return
+    }
+    if (!(await $.ui.panes()).some(p => p.id === GIT_PANE && p.isShown)) {
+      $.ui.toast('Select the Git history tab to view commits.')
+    }
+    const history = await read($, gitHistory)
+    if (!pane || (!history.head && !history.loading)) await loadGitHistory($, true)
+  } finally {
+    openingGitHistory = false
   }
-  await loadGitHistory($, true)
+}
+
+let gitSelection = 0
+const selectGitCommit = async ($: EngineInterface, hash: string): Promise<void> => {
+  const selection = ++gitSelection
+  const history = await read($, gitHistory)
+  if (!history.entries.some(entry => entry.hash === hash)) return
+  const closing = history.selected?.hash === hash && !history.selected.error
+  await update($, gitHistory, state => ({ ...state, selected: closing ? null : { hash, fields: [], message: [], error: false } }))
+  if (closing) return
+  const output = await run($, ['show', '-s', '--no-show-signature', '--no-notes', '--no-patch',
+    '--format=%H%x00%an%x00%aI%x00%cn%x00%cI%x00%P%x00%B', hash, '--'])
+  const [id, author, authored, committer, committed, parents, body] = output?.split('\0') ?? []
+  const ok = id === hash && body !== undefined
+  const fields = ok ? [
+    { label: 'Commit', value: hash, color: '#4b9ead' },
+    { label: 'Author', value: author ?? '', color: '#4a9b62' },
+    { label: 'Authored', value: authored ?? '', color: '#ba922c' },
+    { label: 'Committer', value: committer ?? '', color: '#be6566' },
+    { label: 'Committed', value: committed ?? '', color: '#c67a3d' },
+    ...(parents ? parents.split(' ') : ['root commit']).map(value => ({ label: 'Parent', value, color: '#9e77c6' })),
+  ].map(field => ({ ...field, value: gitText(field.value) })) : []
+  const message = ok ? body.trimEnd().split('\n').map(gitText) : []
+  await update($, gitHistory, state => gitSelection === selection && state.selected?.hash === hash
+    ? { ...state, selected: { hash, fields, message, error: !ok } } : state)
 }
 
 const refreshGit = async ($: EngineInterface): Promise<void> => {
@@ -736,8 +797,26 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const history = await read($, gitHistory)
     return <Box flexDirection="column">
-      <Text dimColor wrap="truncate-end">{history.head ? `${history.entries.length} commits · ${history.head.slice(0, 7)}` : 'Git history'}</Text>
-      {history.entries.map((entry, i) => <Text key={`commit-${i}`} wrap="truncate-end">{entry}</Text>)}
+      {history.head ? <Text wrap="truncate-end"><Text color="#4a9b62">{history.entries.length} commits</Text><Text dimColor> · </Text><Text color="#4b9ead">{history.head.slice(0, 7)}</Text></Text> : <Text>Git history</Text>}
+      {history.entries.map(entry => {
+        const selected = history.selected?.hash === entry.hash ? history.selected : null
+        const prefix = `▸ ${entry.short} ${entry.date} `
+        const title = gitPreview(entry.title, e.props.bodyColumns - prefix.length)
+        return <Box key={entry.hash} flexDirection="column">
+          <Button key={`git-commit:${entry.hash}`} plain onPress={() => selectGitCommit($, entry.hash)}>
+            <Text wrap="truncate-end"><Text color="suggestion">{selected ? '▾ ' : '▸ '}</Text><Text color="#4b9ead">{entry.short}</Text><Text color="#ba922c"> {entry.date} </Text><Text bold={!!selected}>{title}</Text></Text>
+          </Button>
+          {selected && <Box flexDirection="column" paddingLeft={2}>
+            {selected.error ? <Text color="error">Could not read commit. Click to retry.</Text>
+              : selected.fields.length === 0 ? <Text dimColor>Loading commit…</Text>
+              : <Box flexDirection="column">
+                {selected.fields.map((field, i) => <Text key={`field-${i}`} wrap="wrap"><Text key={`field-label-${i}`} color={field.color}>{`${field.label}: `}</Text>{field.value}</Text>)}
+                <Text color="#4e9c87" bold>Message</Text>
+                {selected.message.map((line, i) => <Text key={`message-${i}`} wrap="wrap">{line || ' '}</Text>)}
+              </Box>}
+          </Box>}
+        </Box>
+      })}
       {history.loading && <Text dimColor>Loading commits…</Text>}
       {history.error && <Text color="error" wrap="truncate-end">{history.error}</Text>}
       {!history.loading && (history.more || history.error) && <Button key="git-history-more" plain

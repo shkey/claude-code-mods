@@ -60,7 +60,7 @@ SESSION resolves titles from the current transcript independently of request cou
 
 CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. If the latest request reports no usable input, it looks back over up to ten recent requests and marks an older value `last`. It does not recommend compaction from an older value. Without usable request data it shows an empty track and `ctx unavailable`. After a successful main-session compaction, it ignores pre-compaction context readings, including on resume. Until a new reading is available, the row shows `compacted · awaiting usage`. Session totals and speed history are unchanged.
 
-Click `[history]` in GIT or run `/status-band git` to open a scrollable pane. It shows commits reachable from the local `HEAD` at the time you opened it. Scroll down and select `Load older commits` for another 30; reopen to refresh the snapshot. No fetch runs.
+Click `[history]` in GIT or run `/status-band git` to open a scrollable pane. It shows commits reachable from the local `HEAD` at the time you opened it. Scroll down and select `Load older commits` for another 30; close the tab and open it again to refresh the snapshot. Click a commit to expand its full hash, author and committer dates and names, parents, and message. Only one commit is expanded at a time. Distinct accents distinguish hashes, dates, and metadata labels; commit titles are kept on one line and detail text can wrap. Clicking `[history]` again brings the tab forward without reloading pages; if the terminal requires reopening the tab, scroll position can reset. No fetch runs.
 
 ## Commands
 

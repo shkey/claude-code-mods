@@ -964,14 +964,25 @@ test('tools exposes every counted type, even outside the recent calls', async ($
 test('git history loads on demand, pins HEAD and pages without duplicates', async ($, on) => {
   const head = 'a'.repeat(40)
   const logs: string[][] = []
+  const shown = { id: 'status-band-git', title: 'Git history', isPlaced: true, isShown: true, isFocused: false }
+  let paneState: typeof shown | undefined
+  let closes = 0
+  const hash = (i: number) => i.toString(16).padStart(40, '0')
+  const detailCalls: string[][] = []
   world(on, { gitCommand: args => {
+    if (args[0] === 'show') {
+      detailCalls.push([...args])
+      return [hash(30), 'Fixture Author', '2026-11-27T01:00:00Z', 'Fixture Committer', '2026-11-27T02:00:00Z', hash(31), 'commit 30\n\nFixture body'].join('\0')
+    }
     if (args[0] === 'rev-parse') return head + '\n'
     if (args[0] !== 'log' || !args.includes(head)) return undefined
     logs.push([...args])
     const start = args.includes('--skip=30') ? 30 : 0
-    return Array.from({ length: start ? 2 : 31 }, (_, i) => `${i + start}abc\t2026-11-27\tcommit ${i + start}\n`).join('')
+    return Array.from({ length: start ? 2 : 31 }, (_, i) => `${hash(i + start)}\t${i + start}abc\t2026-11-27\tcommit ${i + start}\n`).join('')
   } })
-  on('ui.open', (_, e) => { expect(e.id).toBe('status-band-git'); return { value: { isPlaced: true } } })
+  on('ui.panes', () => ({ value: paneState ? [paneState] : [] }))
+  on('ui.open', (_, e) => { expect(e.id).toBe(shown.id); paneState ??= shown; return { value: { isPlaced: true } } })
+  on('ui.close', (_, e) => { expect(e.id).toBe(shown.id); closes++; paneState = undefined; return { value: undefined } })
   await $.session.start(START)
   const ui = await mount($)
   expect(logs).toEqual([])
@@ -987,6 +998,26 @@ test('git history loads on demand, pins HEAD and pages without duplicates', asyn
   expect(logs[1]).toContain('--skip=30')
   expect(await has(pane, /commit 30/)).toBe(true)
   expect(await pane.find({ type: 'Button', key: 'git-history-more' })).toBeUndefined()
+  expect(detailCalls).toEqual([])
+  await pane.press({ key: `git-commit:${hash(30)}` })
+  expect(detailCalls[0]).toContain(hash(30))
+  expect(await has(pane, /Fixture Author/)).toBe(true)
+  const detail = JSON.stringify(await pane.drawn())
+  for (const [label, color] of Object.entries({ Commit: '#4b9ead', Author: '#4a9b62', Authored: '#ba922c',
+    Committer: '#be6566', Committed: '#c67a3d', Parent: '#9e77c6', Message: '#4e9c87' })) {
+    expect(detail).toMatch(new RegExp(`"color":"${color}"[^}]*}[^}]*${label}${label === 'Message' ? '"' : ': '}`))
+  }
+  expect(await has(pane, /Fixture body/)).toBe(true)
+  paneState = { ...shown, isShown: false }
+  await ui.press({ key: 'git-history' })
+  expect(closes).toBe(1)
+  expect(logs).toHaveLength(2)
+  expect(await has(pane, /Fixture body/)).toBe(true)
+  await ui.press({ key: 'git-history' })
+  expect(closes).toBe(1)
+  expect(logs).toHaveLength(2)
+  await pane.press({ key: `git-commit:${hash(30)}` })
+  expect(await has(pane, /Fixture body/)).toBe(false)
   await pane.unmount()
   await ui.unmount()
 })
