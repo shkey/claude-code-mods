@@ -165,7 +165,10 @@ const labels = async (ui: Awaited<ReturnType<typeof serve>>['ui'], prefix: strin
 
 test('shows an independent tool button per prompt and lists tools in call order without sensitive arguments', async ($, on) => {
   const { ui } = await serve($, on, detailTranscript)
-  expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('  工具 3 ▸')
+  await ui.press({ key: 'details:first' })
+  expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('工具 3 ▸')
+  expect((await ui.find({ type: 'Text', text: '工具 3 ▸' }))?.props.color).toBe('#c67a3d')
+  expect((await ui.find({ type: 'Text', text: '回复 2 ▸' }))?.props.color).toBe('#628fcf')
   expect((await ui.find({ type: 'Button', key: 'tools:second' }))?.props.label).toBe('工具 1 ▸')
   expect(await ui.find({ type: 'Button', key: 'tools:third' })).toBeUndefined()
   expect(await labels(ui, 'tool:')).toEqual([])
@@ -173,7 +176,7 @@ test('shows an independent tool button per prompt and lists tools in call order 
   expect(await labels(ui, 'tool:')).toEqual([
     ['tool:first:toolu_read', '  1  Read app.ts'], ['tool:first:toolu_bash', '  2  Bash'], ['tool:first:toolu_grep', '  3  Grep'],
   ])
-  expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('  工具 3 ▾')
+  expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('工具 3 ▾')
   expect(JSON.stringify(await ui.drawn())).not.toContain(secret)
   await ui.press({ key: 'tools:second' })
   expect(await labels(ui, 'tool:')).toEqual([['tool:second:toolu_web', '  1  WebFetch a.example']])
@@ -182,52 +185,54 @@ test('shows an independent tool button per prompt and lists tools in call order 
   await ui.unmount()
 })
 
-test('keeps one list open: tools and replies exclude each other across prompts', async ($, on) => {
+test('keeps one list open across prompts and switches between replies and tools', async ($, on) => {
   const { ui } = await serve($, on, detailTranscript)
+  await ui.press({ key: 'details:first' })
   await ui.press({ key: 'reply:first' })
-  expect((await labels(ui, 'segment:')).length).toBe(2)
+  expect(await labels(ui, 'segment:')).toHaveLength(2)
   await ui.press({ key: 'tools:first' })
-  expect((await labels(ui, 'segment:')).length).toBe(0)
-  expect((await labels(ui, 'tool:')).length).toBe(3)
-  expect((await ui.find({ type: 'Button', key: 'reply:first' }))?.props.label).toBe('回复 2 ▸')
-  await ui.press({ key: 'reply:first' })
-  expect((await labels(ui, 'segment:')).length).toBe(2)
-  expect((await labels(ui, 'tool:')).length).toBe(0)
-  expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('  工具 3 ▸')
+  expect(await labels(ui, 'segment:')).toHaveLength(0)
+  expect(await labels(ui, 'tool:')).toHaveLength(3)
+  await ui.press({ key: 'tools:first' })
+  expect(await labels(ui, 'tool:')).toHaveLength(0)
+  expect(await labels(ui, 'reply:first')).toHaveLength(1)
   await ui.press({ key: 'tools:second' })
-  expect((await labels(ui, 'segment:')).length).toBe(0)
-  await ui.press({ key: 'tools:second' })
-  expect(await labels(ui, 'tool:')).toEqual([])
+  expect(await labels(ui, 'tool:')).toHaveLength(1)
+  expect(await labels(ui, 'reply:first')).toHaveLength(0)
   await ui.unmount()
 })
 
-test('keeps the tool button beside the prompt when it fits and drops it to a second row in narrow panes', async ($, on) => {
-  const { ui } = await serve($, on, detailTranscript)
-  const lines = async (key: string) => {
-    const turn = await ui.find({ type: 'Box', key: `turn:${key}` })
-    return (turn?.children as { type: string, children: unknown[] }[]).filter(child => child.type === 'Box').map(box => JSON.stringify(box))
-  }
-  // Prompt one has replies and tools at 24 columns: the reply row stays as before, tools take a second row.
-  let first = await lines('first')
-  expect(first.length).toBe(2)
-  expect(first[0]).toContain('reply:first')
-  expect(first[0]).not.toContain('tools:first')
-  expect(first[1]).toContain('tools:first')
-  expect((await ui.find({ type: 'Button', key: 'jump:first' }))?.props.label).toBe('─ 提问一')
-  // Prompt two has no reply button, so the tool button fits beside a short prompt.
-  expect((await lines('second')).length).toBe(1)
-  expect((await lines('second'))[0]).toContain('tools:second')
+test('keeps collapsed rows single-line and preserves the expanded list across widths', async ($, on) => {
+  const many = Array.from({ length: 120 }, (_, i) => toolUse(`toolu_${i}`, 'Bash', { command: 'git status' }))
+  const transcript = detailTranscript.replace('提问一', '检查提交并更新文档检查提交并更新文档').replace(
+    message('third', 'a3', 'user', '提问三'),
+    message('third', 'a3', 'user', '提问三') + message('a4', 'third', 'assistant', [...many, { type: 'text', text: 'done' }]),
+  )
+  const { ui } = await serve($, on, transcript)
+  const rows = async (key: string) => (await ui.find({ type: 'Box', key: `turn:${key}` }))?.children as { type: string }[]
+  expect(await rows('first')).toHaveLength(1)
+  expect(await rows('third')).toHaveLength(1)
+  expect(await labels(ui, 'details:')).toEqual([['details:first', '详情'], ['details:third', '详情']])
+  expect((await ui.find({ type: 'Text', text: '详情' }))?.props.color).toBe('#ba922c')
+  expect(await labels(ui, 'tools:')).toEqual([['tools:second', '工具 1 ▸']])
+  await ui.press({ key: 'details:third' })
+  expect(await labels(ui, 'tools:third')).toEqual([['tools:third', '工具 120 ▸']])
+  await ui.press({ key: 'details:first' })
+  expect(await rows('third')).toHaveLength(1)
+  await ui.press({ key: 'reply:first' })
   await ui.unmount()
   const wide = await $.ui.mount({ ...pane, props: { ...pane.props, bodyColumns: 48 } })
-  first = await (async () => {
-    const turn = await wide.find({ type: 'Box', key: 'turn:first' })
-    return (turn?.children as { type: string }[]).filter(child => child.type === 'Box').map(box => JSON.stringify(box))
-  })()
-  expect(first.length).toBe(1)
-  expect(first[0]).toContain('tools:first')
+  expect(await labels(wide, 'details:')).toEqual([])
+  expect(await labels(wide, 'segment:first:')).toHaveLength(2)
+  expect(await labels(wide, 'tools:third')).toEqual([['tools:third', '工具 120 ▸']])
   await wide.unmount()
+  const narrow = await $.ui.mount(pane)
+  expect(await labels(narrow, 'segment:first:')).toHaveLength(2)
+  await narrow.press({ key: 'details:first' })
+  expect(await labels(narrow, 'segment:first:')).toEqual([])
+  expect(await labels(narrow, 'tools:')).toEqual([['tools:second', '工具 1 ▸']])
+  await narrow.unmount()
 })
-
 
 test('shows a Bash operation in the expanded tools list', async ($, on) => {
   const transcript = message('first', null, 'user', '状态') +
@@ -235,5 +240,33 @@ test('shows a Bash operation in the expanded tools list', async ($, on) => {
   const { ui } = await serve($, on, transcript)
   await ui.press({ key: 'tools:first' })
   expect(await labels(ui, 'tool:')).toEqual([['tool:first:toolu_git', '  1  Bash git status --…']])
+  await ui.unmount()
+})
+
+
+test('hide tools without hiding prompt or reply navigation', { options: { showTools: false } }, async ($, on) => {
+  const { ui } = await serve($, on, detailTranscript)
+  expect(await labels(ui, 'tools:')).toEqual([])
+  expect(await labels(ui, 'details:')).toEqual([])
+  expect(await labels(ui, 'tool:')).toEqual([])
+  expect(await ui.find({ type: 'Button', key: 'jump:first' })).toBeDefined()
+  await ui.press({ key: 'reply:first' })
+  expect(await labels(ui, 'segment:first:')).toHaveLength(2)
+  expect(await labels(ui, 'tool:')).toEqual([])
+  await ui.unmount()
+})
+
+
+test('only the jump target gets an out-of-flow marker, keeping the original drawing', async ($, on) => {
+  on('state.get', { plugin: id, key: 'jumpMarker' }, () => ({ value: { value: { target: 'answer', sequence: 1 }, version: 1 } }))
+  const { ui } = await serve($, on, detailTranscript)
+  for (const requestId of ['answer', 'other']) {
+    const row = await $.ui.mount({ plugin: id, component: 'AssistantMessage', surface: 'terminal', requestId,
+      props: { text: 'Fixture', isFirstOfReply: true }, viewport: { columns: 140, rows: 30, isFullscreen: true } })
+    const marker = await row.find({ type: 'Box', key: 'timeline-jump-marker' })
+    expect(marker?.props.position).toBe(requestId === 'answer' ? 'absolute' : undefined)
+    expect(await row.find({ type: 'Text', text: 'fixture' })).toBeDefined()
+    await row.unmount()
+  }
   await ui.unmount()
 })

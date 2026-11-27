@@ -2,11 +2,23 @@
 
 A right-hand timeline for the main conversation in Claude Code's fullscreen terminal. Each tick shows a one-line preview of one text prompt. Long previews end in an ellipsis. Click a tick to reveal the original prompt. Click `回复` to jump directly to a single text reply. When a prompt has several reply segments, click `回复 N` to expand their numbered previews, then click a preview to jump to that segment. Click `回复 N` again to collapse the list. Tool-only rows and API errors do not count as replies. The heavier tick marks the prompt associated with the visible transcript. Scroll inside the pane to browse ticks that do not fit.
 
-Each prompt that triggered tool calls also has a separate `工具 N` button. Click it to list those calls in the order the model made them, then click an entry to jump to that tool row, or to its folded group when Claude Code draws the call inside one. Click `工具 N` again to collapse the list. One list is open at a time: opening replies or tools closes the other, and opening one on another prompt closes the previous. Entries show the tool name and, for a few tools, a short safe target: a file's base name for `Read`, `Edit` and `Write`, the host for `WebFetch`, the subagent type for `Task` and the skill name for `Skill`. For `Bash`, recognized shell commands show their name, with a recognized Git operation and selected flags when available (for example, `git status --short`). An ellipsis marks omitted arguments. Unrecognized shell commands show only the tool name. Raw arguments, search patterns, queries and URL paths or credentials are not copied into the preview. In a narrow pane the button moves to its own line below the prompt so the prompt and `回复` keep their usual width.
+Each prompt that triggered tool calls also has a separate `工具 N` button. Click it to list those calls in the order the model made them, then click an entry to jump to that tool row, or to its folded group when Claude Code draws the call inside one. Click `工具 N` again to collapse the list. One list is open at a time: opening replies or tools closes the other, and opening one on another prompt closes the previous. Entries show the tool name and, for a few tools, a short safe target: a file's base name for `Read`, `Edit` and `Write`, the host for `WebFetch`, the subagent type for `Task` and the skill name for `Skill`. For `Bash`, recognized shell commands show their name, with a recognized Git operation and selected flags when available (for example, `git status --short`). An ellipsis marks omitted arguments. Unrecognized shell commands show only the tool name. Raw arguments, search patterns, queries and URL paths or credentials are not copied into the preview. When both buttons would leave fewer than eight columns for the prompt preview, the row shows `详情` instead. Click it to reveal the full `回复` and `工具` labels, or click `收起` to collapse them. A sole button stays on the prompt row. Resizing preserves the open list. Blue, orange, and gold distinguish replies, tools, and the details button. Text labels and arrows still identify each action without color.
 
 Tested with Claude Code 2.1.332. The shared pane uses the renderer's width rules: an automatic open requires at least 144 columns on this version. At 110–143 columns, run `/prompt-timeline` to open it. Below 110 columns or in classic mode the mod does not render the timeline. The plugin requests the minimum dock width of 24 columns. A width remembered by Claude Code takes priority. If the dock is wider, drag its left divider to the right. The pane shares space with other docked panes; it does not replace the native scrollbar.
 
 After compaction, older prompts can remain in the timeline even when Claude Code no longer renders their messages. If a jump to a prompt, reply or tool call fails and the transcript confirms that the message holding it was not retained, the mod points you to the local transcript and the `Ctrl+O` compaction summary. Retained messages still use the normal jump path.
+
+A successful jump briefly marks its destination in the main transcript. For a folded tool call, the marker appears on its group without expanding it.
+
+## Configuration
+
+`showTools` defaults to `true`. Set it to `false` to hide the `工具 N` buttons and their lists. Prompt and reply navigation are unchanged. For a Marketplace installation, open the configuration dialog in Claude Code:
+
+```text
+/plugin configure prompt-timeline@claude-code-mods
+```
+
+Turn off **Show tool buttons** and restart Claude Code. Turn it back on to restore the buttons.
 
 ## Try locally
 

@@ -1,9 +1,17 @@
 {
   "name": "prompt-timeline",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Jump to your prompts from the fullscreen transcript sidebar.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "shkey"
+  },
+  "userConfig": {
+    "showTools": {
+      "type": "boolean",
+      "title": "Show tool buttons",
+      "description": "Show tool buttons and tool call lists in the prompt timeline.",
+      "default": true
+    }
   }
 }

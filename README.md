@@ -55,7 +55,7 @@ Click a prompt in the fullscreen terminal's right-hand pane to jump to it. Click
 /prompt-timeline
 ```
 
-On Claude Code 2.1.332, the pane opens automatically at 144 columns or more. At 110–143 columns, open it with the command. Below 110 columns or in classic mode, it does not render. There are no mod-specific settings. If Claude Code remembers a wider dock, drag the divider to resize it. See the [prompt-timeline guide](plugins/prompt-timeline/README.md) for details.
+On Claude Code 2.1.332, the pane opens automatically at 144 columns or more. At 110–143 columns, open it with the command. Below 110 columns or in classic mode, it does not render. Tool buttons are on by default. See [configuration](plugins/prompt-timeline/README.md#configuration) to hide them. If Claude Code remembers a wider dock, drag the divider to resize it. See the [prompt-timeline guide](plugins/prompt-timeline/README.md) for details.
 
 ### image-preview
 
