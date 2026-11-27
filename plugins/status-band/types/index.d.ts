@@ -36,6 +36,8 @@ export type Identity = { model: string; effort: string | number | null; cwd: str
 
 export type LinesChanged = { added: number; removed: number }
 
+export type GitHistory = { head: string; entries: string[]; more: boolean; loading: boolean; error: string }
+
 export type GitInfo = {
   branch: string
   changed: number
@@ -100,6 +102,7 @@ declare module 'claude-code' {
       measure: MeasureState | null
       identity: Identity
       git: GitInfo | null
+      gitHistory: GitHistory
       status: SessionStatus
       receipt: Receipt | null
       calls: CallEntry[]

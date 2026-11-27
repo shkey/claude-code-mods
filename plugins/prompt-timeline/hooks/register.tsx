@@ -3,10 +3,13 @@ import type { EngineInterface, Register } from 'claude-code'
 import { activePrompt, indexRows, jumpNotice, parseRow, preview, promptText, rowKey } from './core'
 import type { Prompt } from './core'
 
+type ListKind = 'reply' | 'tool' | ''
+
 const PANE = 'prompt-timeline'
 const CHUNK = 256 * 1024
-// A new key keeps hot reload from reading the old single-reply state shape.
-const view = atom({ plugin: 'prompt-timeline', key: 'replyView' } as const, { prompts: [] as Prompt[], current: '', expanded: '' })
+const MIN_PREVIEW = 8
+// A new key keeps hot reload from reading the old reply-only state shape.
+const view = atom({ plugin: 'prompt-timeline', key: 'detailView' } as const, { prompts: [] as Prompt[], current: '', expanded: '', kind: '' as ListKind })
 
 let path = ''
 let offset = 0
@@ -22,18 +25,22 @@ const drawn = new Map<string, string>()
 let busy = false
 let warned = false
 let current = ''
+// At most one list is open: the replies or the tools of one prompt.
 let expanded = ''
+let kind: ListKind = ''
 let publishedExpanded = ''
+let publishedKind: ListKind = ''
 let published = ''
 let publishedPrompts = index.prompts
 let refreshViewPending = false
 
 const publish = async ($: EngineInterface) => {
-  if (current === published && expanded === publishedExpanded && index.prompts === publishedPrompts) return
+  if (current === published && expanded === publishedExpanded && kind === publishedKind && index.prompts === publishedPrompts) return
   published = current
   publishedExpanded = expanded
+  publishedKind = kind
   publishedPrompts = index.prompts
-  await update($, view, () => ({ prompts: publishedPrompts, current: published, expanded: publishedExpanded }))
+  await update($, view, () => ({ prompts: publishedPrompts, current: published, expanded: publishedExpanded, kind: publishedKind }))
 }
 const updateCurrent = () => {
   current = activePrompt(index.rows, visible) ?? (index.prompts.some(p => p.id === current) ? current : index.prompts.at(-1)?.id ?? '')
@@ -71,6 +78,7 @@ const refresh = async ($: EngineInterface) => {
       history = []
       current = ''
       expanded = ''
+      kind = ''
     }
     const before = history.length
     while (offset < size) {
@@ -87,7 +95,10 @@ const refresh = async ($: EngineInterface) => {
     }
     if (reset || history.length !== before) {
       index = indexRows(history)
-      if (!index.prompts.some(p => p.id === expanded && p.replies.length > 1)) expanded = ''
+      if (!index.prompts.some(p => p.id === expanded && (kind === 'reply' ? p.replies.length > 1 : kind === 'tool' && p.tools.length > 0))) {
+        expanded = ''
+        kind = ''
+      }
       updateCurrent()
       await publish($)
     }
@@ -133,12 +144,19 @@ export const register: Register = on => {
     return next(e)
   })
   on('ui.render', { component: 'ToolUse' }, ($, e, next) => {
-    if (e.surface === 'terminal') report($, e.requestId, e.props.onScreen)
+    if (e.surface === 'terminal') {
+      drawn.set(rowKey(e.requestId), e.requestId)
+      report($, e.requestId, e.props.onScreen)
+    }
     return next(e)
   })
   on('ui.render', { component: 'ToolGroup' }, ($, e, next) => {
     const id = e.props.calls.find(call => call.tool_use_id)?.tool_use_id
-    if (id && e.surface === 'terminal') report($, id, e.props.onScreen)
+    if (e.surface === 'terminal') {
+      // A folded call has no row of its own; its group is the nearest thing to scroll to.
+      for (const call of e.props.calls) if (call.tool_use_id) drawn.set(rowKey(call.tool_use_id), e.requestId)
+      if (id) report($, id, e.props.onScreen)
+    }
     return next(e)
   })
 
@@ -150,20 +168,35 @@ export const register: Register = on => {
     return <Box flexDirection="column">
       <Text dimColor>Prompts · {state.prompts.length}</Text>
       {state.prompts.map(p => {
-        const count = p.replies.length
-        const opened = state.expanded === p.id
-        const label = count > 1 ? `回复 ${count} ${opened ? '▾' : '▸'}` : '回复'
-        const buttonWidth = count > 1 ? 8 + String(count).length : 4
+        const replies = p.replies.length
+        const tools = p.tools.length
+        const repliesOpen = state.expanded === p.id && state.kind === 'reply'
+        const toolsOpen = state.expanded === p.id && state.kind === 'tool'
+        const replyLabel = replies > 1 ? `回复 ${replies} ${repliesOpen ? '▾' : '▸'}` : '回复'
+        const replyWidth = replies > 1 ? 8 + String(replies).length : 4
+        const toolLabel = `工具 ${tools} ${toolsOpen ? '▾' : '▸'}`
+        const toolWidth = 8 + String(tools).length
+        // The prompt keeps the width it had before tools existed; the tool button joins the row only if that still leaves room.
+        const room = e.props.bodyColumns - (replies ? replyWidth + 4 : 3)
+        const inline = tools > 0 && room - toolWidth - 1 >= MIN_PREVIEW
+        const toolButton = (label: string) => <Button key={`tools:${p.id}`} plain label={label} onPress={() => {}} />
         return <Box key={`turn:${p.id}`} flexDirection="column">
           <Box flexDirection="row" gap={1}>
             <Button key={`jump:${p.id}`} plain dimColor={p.id !== state.current}
-              label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, e.props.bodyColumns - (count ? buttonWidth + 4 : 3))}`} onPress={() => {}} />
-            {count > 0 && <Button key={`reply:${p.id}`} plain label={label} onPress={() => {}} />}
+              label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, inline ? room - toolWidth - 1 : room)}`} onPress={() => {}} />
+            {replies > 0 && <Button key={`reply:${p.id}`} plain label={replyLabel} onPress={() => {}} />}
+            {inline && toolButton(toolLabel)}
           </Box>
-          {opened && p.replies.map((reply, i) => {
+          {tools > 0 && !inline && <Box flexDirection="row">{toolButton(`  ${toolLabel}`)}</Box>}
+          {repliesOpen && p.replies.map((reply, i) => {
             const prefix = `  ${i + 1}  `
             return <Button key={`segment:${p.id}:${reply.id}`} plain
               label={prefix + preview(reply.text, e.props.bodyColumns - prefix.length)} onPress={() => {}} />
+          })}
+          {toolsOpen && p.tools.map((tool, i) => {
+            const prefix = `  ${i + 1}  `
+            return <Button key={`tool:${p.id}:${tool.id}`} plain
+              label={prefix + preview(tool.target ? `${tool.name} ${tool.target}` : tool.name || '工具', e.props.bodyColumns - prefix.length)} onPress={() => {}} />
           })}
         </Box>
       })}
@@ -171,21 +204,29 @@ export const register: Register = on => {
   })
   on('ui.press', { component: 'Pane', requestId: PANE, plugin: PANE }, async ($, e, next) => {
     const result = await next(e)
-    const match = /^(jump|reply|segment):([^:]+)(?::([^:]+))?$/.exec(e.element)
+    const match = /^(jump|reply|segment|tools|tool):([^:]+)(?::(.+))?$/.exec(e.element)
     if (!match) return result
     const prompt = index.prompts.find(p => p.id === match[2])
     if (!prompt) return result
-    if (match[1] === 'reply' && prompt.replies.length > 1) {
-      expanded = expanded === prompt.id ? '' : prompt.id
+    const toggle = (list: ListKind) => {
+      const closing = expanded === prompt.id && kind === list
+      expanded = closing ? '' : prompt.id
+      kind = closing ? '' : list
+    }
+    if ((match[1] === 'reply' && prompt.replies.length > 1) || (match[1] === 'tools' && prompt.tools.length)) {
+      toggle(match[1] === 'tools' ? 'tool' : 'reply')
       await publish($)
       return result
     }
+    const open = expanded === prompt.id ? kind : ''
+    const tool = match[1] === 'tool' && open === 'tool' ? prompt.tools.find(t => t.id === match[3]) : undefined
     const id = match[1] === 'jump' ? prompt.id : match[1] === 'reply' ? prompt.replies[0]?.id
-      : expanded === prompt.id ? prompt.replies.find(reply => reply.id === match[3])?.id : undefined
+      : match[1] === 'segment' && open === 'reply' ? prompt.replies.find(reply => reply.id === match[3])?.id : tool?.id
     if (!id) return result
     const target = drawn.get(rowKey(id)) ?? id
     const jump = await $.ui.scroll({ to: { requestId: target }, block: 'start' })
-    if (jump.deny) $.ui.toast(jumpNotice(index, id, jump.deny))
+    // Compaction is judged on the transcript message; a tool call lives inside its owning message.
+    if (jump.deny) $.ui.toast(jumpNotice(index, tool?.owner ?? id, jump.deny))
     else {
       visible.clear()
       current = prompt.id

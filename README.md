@@ -33,7 +33,7 @@ claude plugin disable image-preview@better-claude --scope user
 
 ### status-band
 
-The band appears above the prompt. Click rows with an arrow to see tool-call, file, permission, or agent details. Git is optional; without it, the Git row is omitted. Historical metrics depend on the current session's local transcript. `tps~` is an end-to-end estimate, not decode speed.
+The band appears above the prompt. Click rows with an arrow to see tool-call, file, permission, or agent details. When more than five tool types are counted, click `[all N types]` to see every type and its count above the recent calls. Click `[history]` in the Git row or run `/status-band git` to browse commits reachable from the local `HEAD`. Scroll in the pane and click `Load older commits` to load the next page. Git is optional; without it, the Git row is omitted. Historical metrics depend on the current session's local transcript. `tps~` is an end-to-end estimate, not decode speed.
 
 Use these commands to inspect or change local display preferences:
 
@@ -49,7 +49,7 @@ See the [status-band guide](plugins/status-band/README.md) for all rows and comm
 
 ### prompt-timeline
 
-Click a prompt in the fullscreen terminal's right-hand pane to jump to it. Click `回复` to jump to a single reply, or `回复 N` to choose a segment when the prompt has multiple replies. After compaction, older entries can remain in the timeline even if Claude Code no longer displays those messages. Scroll within the pane to see more entries. Use the native close button to hide it. To reopen it, run:
+Click a prompt in the fullscreen terminal's right-hand pane to jump to it. Click `回复` to jump to a single reply, or `回复 N` to choose a segment when the prompt has multiple replies. Click `工具 N` to list that prompt's tool calls and jump to a call or its folded group. After compaction, older entries can remain in the timeline even if Claude Code no longer displays those messages. Scroll within the pane to see more entries. Use the native close button to hide it. To reopen it, run:
 
 ```text
 /prompt-timeline

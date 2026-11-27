@@ -45,7 +45,7 @@ const AGENT = {
   hasRow: true,
 }
 
-type World = { git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; path?: string; ctx?: number; missingContext?: boolean; cache?: boolean }
+type World = { gitCommand?: (args: readonly string[]) => string | undefined; git?: Record<string, string> | null; usage?: boolean; agents?: object[]; transcript?: string; path?: string; ctx?: number; missingContext?: boolean; cache?: boolean }
 
 const world = (on: any, o: World = {}) => {
   const clock = mock.clock(on)
@@ -70,7 +70,7 @@ const world = (on: any, o: World = {}) => {
 
     return git === null
       ? { value: { exitCode: 128, stdout: '', stderr: 'not a repo', isStdoutTruncated: false, isStderrTruncated: false } }
-      : ran(git[e.argv[2] ?? ''] ?? '')
+      : ran(o.gitCommand?.(e.argv.slice(2)) ?? git[e.argv[2] ?? ''] ?? '')
   })
   on('agent.list', () => ({ value: (o.agents ?? []) as never }))
   on('command.register', (_: unknown, e: any) => ({ value: { command: e.name } }))
@@ -940,5 +940,53 @@ test('lines the edits changed add up, and a context over 200k says so', async ($
   expect(await has(ui, /\+4/)).toBe(true)
   expect(await has(ui, /−2/)).toBe(true)
   expect(await has(ui, />200k/)).toBe(true)
+  await ui.unmount()
+})
+
+
+test('tools exposes every counted type, even outside the recent calls', async ($, on) => {
+  world(on)
+  on('tool.call', () => ({ result: 'ok' }))
+  await $.session.start(START)
+  for (const tool of ['Bash', 'Edit', 'Read', 'Write', 'Grep', 'Glob', 'WebSearch']) {
+    await $.tool.call({ tool } as never)
+  }
+  for (let i = 0; i < 11; i++) await $.tool.call({ tool: 'Bash' } as never)
+  const ui = await mount($)
+  expect(await ui.find({ type: 'Button', key: 'all-tool-types' })).toBeDefined()
+  expect(await has(ui, /WebSearch×1/)).toBe(false)
+  await ui.press({ key: 'all-tool-types' })
+  expect(await has(ui, /WebSearch×1/)).toBe(true)
+  expect(await has(ui, /Recent calls/)).toBe(true)
+  await ui.unmount()
+})
+
+test('git history loads on demand, pins HEAD and pages without duplicates', async ($, on) => {
+  const head = 'a'.repeat(40)
+  const logs: string[][] = []
+  world(on, { gitCommand: args => {
+    if (args[0] === 'rev-parse') return head + '\n'
+    if (args[0] !== 'log' || !args.includes(head)) return undefined
+    logs.push([...args])
+    const start = args.includes('--skip=30') ? 30 : 0
+    return Array.from({ length: start ? 2 : 31 }, (_, i) => `${i + start}abc\t2026-11-27\tcommit ${i + start}\n`).join('')
+  } })
+  on('ui.open', (_, e) => { expect(e.id).toBe('status-band-git'); return { value: { isPlaced: true } } })
+  await $.session.start(START)
+  const ui = await mount($)
+  expect(logs).toEqual([])
+  await ui.press({ key: 'git-history' })
+  const pane = await $.ui.mount({ plugin: 'status-band', component: 'Pane', requestId: 'status-band-git', surface: 'terminal',
+    props: { title: 'Git history', placement: 'dock', isFocused: false, bodyColumns: 38, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+    viewport: { columns: 140, rows: 30 } })
+  expect(logs).toHaveLength(1)
+  expect(await has(pane, /commit 29/)).toBe(true)
+  expect(await has(pane, /commit 30/)).toBe(false)
+  await pane.press({ key: 'git-history-more' })
+  expect(logs).toHaveLength(2)
+  expect(logs[1]).toContain('--skip=30')
+  expect(await has(pane, /commit 30/)).toBe(true)
+  expect(await pane.find({ type: 'Button', key: 'git-history-more' })).toBeUndefined()
+  await pane.unmount()
   await ui.unmount()
 })

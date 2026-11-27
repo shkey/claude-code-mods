@@ -82,6 +82,7 @@ export type Actions = {
   toggleAgent: (id: string) => unknown
   viewAgent: (id: string | null) => unknown
   stopAgent: (id: string) => unknown
+  openGitHistory: () => unknown
 }
 
 const DETAIL_LINES = 10
@@ -194,12 +195,12 @@ const stateRow = (c: Ctx) => {
 }
 
 const gitRow = (c: Ctx) => {
-  const { ui, s } = c
+  const { ui, s, act } = c
   const g = s.git
 
   if (g === null) return null
 
-  const { Text } = ui
+  const { Box, Text } = ui
   const tone = ROW_HUE.git
   const items: unknown[] = [
     <Text key="branch" bold>
@@ -224,7 +225,7 @@ const gitRow = (c: Ctx) => {
   if (g.subject !== '') items.push(dim(ui, g.subject + (g.age !== '' ? ' · ' + g.age : ''), 'subject'))
 
   // Gaps, not dots: the branch, the changes and the arrows read as one cluster.
-  return row(ui, tone, 'git', line(ui, items, '  '), 'r-git')
+  return row(ui, tone, 'git', <Box>{action(ui, 'history', act.openGitHistory, 'git-history')}<Text>{'  '}</Text>{line(ui, items, '  ')}</Box>, 'r-git')
 }
 
 const contextRow = (c: Ctx) => {
@@ -394,20 +395,25 @@ const toolsRows = (c: Ctx): unknown[] => {
   const tone = ROW_HUE.tools
   const ranked = Object.entries(s.counts).sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
   const total = ranked.reduce((sum, [, n]) => sum + n, 0)
-  const { Text } = ui
+  const { Box, Text } = ui
   const items = [plain(ui, total + (total === 1 ? ' call' : ' calls'), 'total')]
   const top = ranked.slice(0, 5)
   const recent = s.calls.slice(-DETAIL_LINES).reverse()
-  const colors = toolColors([...top.map(([name]) => name), ...recent.map(call => call.name)])
+  const colors = toolColors([...ranked.map(([name]) => name), ...recent.map(call => call.name)])
   for (const [name, n] of top) {
     items.push(<Text key={name}><Text color={colors.get(name)}>{foldTool(name)}</Text><Text>{'×' + n}</Text></Text>)
   }
-  if (ranked.length > 5) items.push(dim(ui, '+' + (ranked.length - 5) + ' tool types', 'other-types'))
-  const toggle = s.calls.length === 0 ? undefined : { isOpen: s.prefs.open.tools, onPress: () => act.toggle('tools') }
-  const out: unknown[] = [row(ui, tone, 'tools', line(ui, items), 'r-tools', toggle)]
+  const toggle = { isOpen: s.prefs.open.tools, onPress: () => act.toggle('tools') }
+  const out: unknown[] = [row(ui, tone, 'tools', <Box>{ranked.length > 5 && action(ui, `all ${ranked.length} types`, toggle.onPress, 'all-tool-types')}{ranked.length > 5 && <Text>{'  '}</Text>}{line(ui, items)}</Box>, 'r-tools', toggle)]
 
-  if (toggle?.isOpen) {
-    out.push(detail(ui, tone, recent.map(call => callLine(c, call, colors.get(call.name))), 'd-tools'))
+  if (toggle.isOpen) {
+    if (ranked.length > 5 || recent.length === 0) {
+      out.push(detail(ui, tone, [dim(ui, 'Tool types', 'tool-types-heading'), ...ranked.map(([name, n]) =>
+        <Text key={name} wrap="truncate-end"><Text color={colors.get(name)}>{name}</Text><Text>{'×' + n}</Text></Text>
+      )], 'd-tool-types'))
+    }
+    if (recent.length > 0) out.push(detail(ui, tone, [dim(ui, 'Recent calls', 'recent-calls-heading'),
+      ...recent.map(call => callLine(c, call, colors.get(call.name)))], 'd-tools'))
   }
 
   return out

@@ -1,5 +1,6 @@
-type Row = { id: string; parent?: string; side: boolean; text: string; answer: string; response?: string; tools: string[]; retainedAfterCompact?: string[] }
-export type Prompt = { id: string; text: string; replies: { id: string; text: string }[] }
+export type Tool = { id: string; name: string; target: string; owner: string }
+type Row = { id: string; parent?: string; side: boolean; text: string; answer: string; response?: string; tools: Omit<Tool, 'owner'>[]; retainedAfterCompact?: string[] }
+export type Prompt = { id: string; text: string; replies: { id: string; text: string }[]; tools: Tool[] }
 type Position = { order: number; prompt: string }
 export const rowKey = (id: string) => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id) ? id.slice(0, 24) : id
 
@@ -25,6 +26,24 @@ export function preview(text: string, columns: number): string {
   return prefix
 }
 
+const clean = (text: string) => text.replace(/[\p{Cc}\p{Bidi_Control}]/gu, '').slice(0, 40)
+
+// Only identifiers that are safe to show: a file's basename, a URL's host, a subagent type or skill name.
+// Commands, patterns, queries and prompts never reach the label.
+function toolTarget(name: string, input: unknown): string {
+  const args = typeof input === 'object' && input ? input as Record<string, unknown> : {}
+  const text = (key: string) => typeof args[key] === 'string' ? args[key] : ''
+  if (['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name)) {
+    return clean((text('file_path') || text('notebook_path')).split(/[\\/]/).pop() ?? '')
+  }
+  if (name === 'WebFetch') {
+    try { return clean(new URL(text('url')).hostname) } catch { return '' }
+  }
+  if (name === 'Task' || name === 'Agent') return clean(text('subagent_type'))
+  if (name === 'Skill') return clean(text('skill'))
+  return ''
+}
+
 export function parseRow(line: string): Row | undefined {
   let row
   try { row = JSON.parse(line) } catch { return undefined }
@@ -39,7 +58,11 @@ export function parseRow(line: string): Row | undefined {
     ? (typeof content === 'string' ? content : blocks.flatMap(b => b?.type === 'text' && typeof b.text === 'string' ? [b.text] : []).join(' ')).trim().replace(/\s+/g, ' ').slice(0, 160)
     : ''
   const response = typeof row.requestRef === 'string' ? row.requestRef : typeof row.message?.id === 'string' ? row.message.id : undefined
-  const tools = blocks.flatMap(b => b?.type === 'tool_use' && typeof b.id === 'string' ? [b.id] : [])
+  const tools = blocks.flatMap(b => {
+    if (b?.type !== 'tool_use' || typeof b.id !== 'string') return []
+    const name = typeof b.name === 'string' ? clean(b.name) : ''
+    return [{ id: b.id, name, target: toolTarget(name, b.input) }]
+  })
   const preserved = row.type === 'system' && row.subtype === 'compact_boundary'
     ? row.compactMetadata?.preservedMessages?.allUuids : undefined
   const retainedAfterCompact = Array.isArray(preserved) && preserved.every(id => typeof id === 'string')
@@ -63,7 +86,7 @@ export function indexRows(history: Row[]) {
   let previousResponse: string | undefined
   chain.reverse().forEach((row, order) => {
     if (row.text) {
-      owner = { id: row.id, text: row.text, replies: [] }
+      owner = { id: row.id, text: row.text, replies: [], tools: [] }
       prompts.push(owner)
     }
     if (owner) {
@@ -75,7 +98,8 @@ export function indexRows(history: Row[]) {
           owner.replies.push({ id: row.id, text: row.answer })
         }
       }
-      for (const id of [row.id, ...row.tools]) rows.set(rowKey(id), { order, prompt: owner.id })
+      for (const tool of row.tools) owner.tools.push({ ...tool, owner: row.id })
+      for (const id of [row.id, ...row.tools.map(tool => tool.id)]) rows.set(rowKey(id), { order, prompt: owner.id })
     }
     previousResponse = row.answer ? row.response : undefined
   })

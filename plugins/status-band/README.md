@@ -49,7 +49,7 @@ SESSION stays at the top of the band, even before the title or Recap arrives. IN
 | TOKENS | cache countdown, last request `in/out` and cache read/write, session totals and request count, subagent totals | `session.measure`, `turn.step` usage; a session already running when the mod loads starts from its transcript |
 | SPEED | `ttft`, `tpot`, `tps`, `e2e` of the last request, p50 of the last 10 | `turn.step` stream timing |
 | AGENTS ▸ | running, done, failed; what each running agent is doing. Open: one line per agent with model, task, current or last command, clock, context, steps, and `[view]` `[stop]`; its name opens its last three calls | `$.agent.list()`, `turn.start`, `turn.step`, `tool.call` |
-| TOOLS ▸ | total calls in the main session and counts for the five most-used tools. Open: the last 10 individual calls, newest first, with time, tool, target and outcome; live entries also show measured duration and subagent when available | `tool.call` plus the main session transcript on load |
+| TOOLS ▸ | total calls in the main session and counts for the five most-used tools. Open: all counted tool types when there are more than five, plus the last 10 individual calls, newest first, with time, tool, target and outcome; live entries also show measured duration and subagent when available | `tool.call` plus the main session transcript on load |
 | FILES ▸ | edited and read files. Open: the last 10 with counts | `tool.call` inputs |
 | GATE ▸ | allowed, asked, denied. Open: the last 10 checks | `tool.check` |
 | TODO | the item in progress and the count done | `TodoWrite`, `TaskCreate`, `TaskUpdate` |
@@ -59,6 +59,8 @@ A row with no activity (such as TOOLS or AGENTS) is left out. CONTEXT and TOKENS
 SESSION resolves titles from the current transcript independently of request counters. On startup or transcript change it can look back beyond the regular tail; a manual title takes precedence. SESSION omits Recap if the transcript has none. It reads existing records and never runs a model request to generate one. The manual `/recap` command output is not tracked. During idle, the band checks transcript metadata every five seconds and reads at most the last 512 KiB when it changes.
 
 CONTEXT prefers the engine's reported fill. If only the window size is available, `~` marks the latest same-model main request's input (including reported cached input), not the current draft or cumulative session usage. If the latest request reports no usable input, it looks back over up to ten recent requests and marks an older value `last`. It does not recommend compaction from an older value. Without usable request data it shows an empty track and `ctx unavailable`. After a successful main-session compaction, it ignores pre-compaction context readings, including on resume. Until a new reading is available, the row shows `compacted · awaiting usage`. Session totals and speed history are unchanged.
+
+Click `[history]` in GIT or run `/status-band git` to open a scrollable pane. It shows commits reachable from the local `HEAD` at the time you opened it. Scroll down and select `Load older commits` for another 30; reopen to refresh the snapshot. No fetch runs.
 
 ## Commands
 
@@ -70,6 +72,7 @@ CONTEXT prefers the engine's reported fill. If only the window size is available
 | `/status-band expand` and `collapse` | open or close every section |
 | `/status-band notify on` and `off` | desktop notification when Claude waits for you, and when a turn over a minute ends (off by default) |
 | `/status-band reset` | clear counters, calls, files, gate and agent tracking |
+| `/status-band git` | open the local Git history pane |
 | `/status-band debug` | how the last request was timed |
 
 Row names: `state`, `context`, `tokens`, `speed`, `agents`, `tools`, `files`, `gate`, `todo`, `git`. A few aliases work (`info` for `state`, `ctx`, `session`, `cache`, `tool`, `file`, `agent`).

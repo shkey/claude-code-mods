@@ -48,6 +48,7 @@ import type {
   CallStatus,
   FileEntry,
   GitInfo,
+  GitHistory,
   Identity,
   LinesChanged,
   MeasureState,
@@ -69,6 +70,10 @@ const main = atom({ plugin: 'status-band', key: 'main' } as const, EMPTY_TOTALS)
 const agents = atom({ plugin: 'status-band', key: 'agents' } as const, EMPTY_TOTALS)
 const measure = atom({ plugin: 'status-band', key: 'measure' } as const, null as MeasureState | null)
 const identity = atom({ plugin: 'status-band', key: 'identity' } as const, { model: '', effort: null, cwd: '', root: '', version: '', customTitle: '', aiTitle: '', recap: '', thinking: false, cacheTtl: '' } as Identity)
+const GIT_PANE = 'status-band-git'
+const GIT_PAGE = 30
+const gitHistory = atom({ plugin: 'status-band', key: 'gitHistory' } as const,
+  { head: '', entries: [], more: false, loading: false, error: '' } as GitHistory)
 const git = atom({ plugin: 'status-band', key: 'git' } as const, null as GitInfo | null)
 const status = atom(
   { plugin: 'status-band', key: 'status' } as const,
@@ -101,10 +106,48 @@ const run = async ($: EngineInterface, args: readonly string[]): Promise<string 
   try {
     const ran = await $.process.run(['git', '--no-pager', ...args], { timeoutMs: 5000 })
 
-    return ran.exitCode === 0 ? ran.stdout : undefined
+    return ran.exitCode === 0 && !ran.isStdoutTruncated ? ran.stdout : undefined
   } catch {
     return undefined
   }
+}
+
+// Pin the history to a single HEAD so new commits do not shift page offsets.
+let gitHistoryBusy = false
+const loadGitHistory = async ($: EngineInterface, restart: boolean): Promise<void> => {
+  if (gitHistoryBusy) return
+  gitHistoryBusy = true
+  try {
+    const previous = await read($, gitHistory)
+    if (!restart && !previous.more) return
+    const base = restart ? { head: '', entries: [], more: false, loading: true, error: '' } : { ...previous, loading: true, error: '' }
+    await update($, gitHistory, () => base)
+    const head = restart ? (await run($, ['rev-parse', '--verify', 'HEAD']))?.trim() : base.head
+    if (!head || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head)) {
+      await update($, gitHistory, () => ({ ...base, loading: false, error: 'No readable HEAD. Reopen history after the first commit.' }))
+      return
+    }
+    const output = await run($, ['log', '--no-show-signature', '--no-notes', `--max-count=${GIT_PAGE + 1}`,
+      `--skip=${base.entries.length}`, '--format=%h%x09%as%x09%s', head, '--'])
+    if (output === undefined) {
+      await update($, gitHistory, () => ({ ...base, head, loading: false, error: 'Git log failed. Retry or reopen history.' }))
+      return
+    }
+    const page = output.split('\n').filter(Boolean).map(line => line.replace(/[^\S\n]+/g, ' ').replace(/[\p{Cc}\p{Bidi_Control}]/gu, ''))
+    await update($, gitHistory, () => ({ head, entries: [...base.entries, ...page.slice(0, GIT_PAGE)],
+      more: page.length > GIT_PAGE, loading: false, error: '' }))
+  } finally {
+    gitHistoryBusy = false
+  }
+}
+
+const openGitHistory = async ($: EngineInterface): Promise<void> => {
+  const opened = await $.ui.open({ id: GIT_PANE, title: 'Git history', columns: 54, rows: 14 })
+  if (!opened.isPlaced) {
+    $.ui.toast(`Git history pane unavailable: ${opened.reason}`)
+    return
+  }
+  await loadGitHistory($, true)
 }
 
 const refreshGit = async ($: EngineInterface): Promise<void> => {
@@ -346,8 +389,8 @@ export const register: Register = on => {
 
     await $.command.register({
       name: 'status-band',
-      description: 'Status band: hide, show, order, expand, collapse, notify, reset, debug',
-      argumentHint: '[hide|show [row]|order [rows]|expand|collapse|notify on|off|reset|debug]',
+      description: 'Status band: hide, show, order, expand, collapse, notify, reset, debug, git',
+      argumentHint: '[hide|show [row]|order [rows]|expand|collapse|notify on|off|reset|debug|git]',
       immediate: true,
     })
     await loadPrefs($)
@@ -600,6 +643,10 @@ export const register: Register = on => {
     const value = words[1] ?? ''
     const rest = words.slice(1)
 
+    if (arg === 'git') {
+      await openGitHistory($)
+      return {}
+    }
     if (arg === 'hide' || arg === 'show') {
       // With a row name it hides or shows that row; alone it hides or shows the whole band.
       const id = value !== '' ? parseRowId(value) : null
@@ -682,7 +729,21 @@ export const register: Register = on => {
       }
     }
 
-    return { text: 'usage: /status-band hide|show [row] · order [rows…|reset] · expand|collapse · notify on|off · reset · debug' }
+    return { text: 'usage: /status-band hide|show [row] · order [rows…|reset] · expand|collapse · notify on|off · reset · debug · git' }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: GIT_PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const history = await read($, gitHistory)
+    return <Box flexDirection="column">
+      <Text dimColor wrap="truncate-end">{history.head ? `${history.entries.length} commits · ${history.head.slice(0, 7)}` : 'Git history'}</Text>
+      {history.entries.map((entry, i) => <Text key={`commit-${i}`} wrap="truncate-end">{entry}</Text>)}
+      {history.loading && <Text dimColor>Loading commits…</Text>}
+      {history.error && <Text color="error" wrap="truncate-end">{history.error}</Text>}
+      {!history.loading && (history.more || history.error) && <Button key="git-history-more" plain
+        label={history.error ? 'Retry' : 'Load older commits'} onPress={() => loadGitHistory($, !history.more)} />}
+      {!history.loading && !history.more && !history.error && history.head && <Text dimColor>End of local history</Text>}
+    </Box>
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -718,6 +779,7 @@ export const register: Register = on => {
         prefs: p,
       }
       const act: Actions = {
+        openGitHistory: () => openGitHistory($),
         toggle: key => update($, prefs, q => toggleOpen(q, key)).then(() => savePrefs($)),
         toggleAgent: id => update($, prefs, q => toggleAgent(q, id)).then(() => savePrefs($)),
         viewAgent: id => $.ui.view(id === null ? {} : { agentId: id }),

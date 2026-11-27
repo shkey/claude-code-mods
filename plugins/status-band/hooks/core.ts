@@ -167,6 +167,8 @@ export const gauge = (percent: number, width: number): { fill: string; rest: str
   return { fill: '━'.repeat(at) + '●', rest: '─'.repeat(width - 1 - at) }
 }
 
+export type GitHistory = { head: string; entries: string[]; more: boolean; loading: boolean; error: string }
+
 export type GitInfo = {
   branch: string
   changed: number
