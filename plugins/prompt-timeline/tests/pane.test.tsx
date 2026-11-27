@@ -174,6 +174,7 @@ test('shows an independent tool button per prompt and lists tools in call order 
     ['tool:first:toolu_read', '  1  Read app.ts'], ['tool:first:toolu_bash', '  2  Bash'], ['tool:first:toolu_grep', '  3  Grep'],
   ])
   expect((await ui.find({ type: 'Button', key: 'tools:first' }))?.props.label).toBe('  工具 3 ▾')
+  expect(JSON.stringify(await ui.drawn())).not.toContain(secret)
   await ui.press({ key: 'tools:second' })
   expect(await labels(ui, 'tool:')).toEqual([['tool:second:toolu_web', '  1  WebFetch a.example']])
   expect(JSON.stringify(await ui.drawn())).not.toContain('SECRET')
@@ -225,4 +226,14 @@ test('keeps the tool button beside the prompt when it fits and drops it to a sec
   expect(first.length).toBe(1)
   expect(first[0]).toContain('tools:first')
   await wide.unmount()
+})
+
+
+test('shows a Bash operation in the expanded tools list', async ($, on) => {
+  const transcript = message('first', null, 'user', '状态') +
+    message('a', 'first', 'assistant', [toolUse('toolu_git', 'Bash', { command: 'git status --short' })])
+  const { ui } = await serve($, on, transcript)
+  await ui.press({ key: 'tools:first' })
+  expect(await labels(ui, 'tool:')).toEqual([['tool:first:toolu_git', '  1  Bash git status --…']])
+  await ui.unmount()
 })

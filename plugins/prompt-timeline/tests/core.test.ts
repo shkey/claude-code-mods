@@ -133,3 +133,17 @@ test('judges compaction by the message that owns a tool call, not by the tool id
   expect(jumpNotice(history, tools[1]!.owner, deny)).not.toContain('压缩')
   expect(jumpNotice(history, tools[0]!.id, deny)).not.toContain('压缩')
 })
+
+
+test('previews common Bash operations without copying shell arguments', () => {
+  const target = (command: string) =>
+    index(user('one', null, 'q'), calls('a', 'one', ['t', 'Bash', { command }])).prompts[0]!.tools[0]!.target
+  expect(target('git status --short')).toBe('git status --short')
+  expect(target('git log -5 --oneline')).toBe('git log -5 --oneline')
+  expect(target('git diff --stat')).toBe('git diff --stat')
+  expect(target('git push https://fixture-user:FAKE_TEST_ONLY@example.invalid/repo')).toBe('git push …')
+  expect(target('git status && echo SECRET')).toBe('git status …')
+  expect(target('python3 -c "print(SECRET)"')).toBe('python3 …')
+  expect(target('git \u001bstatus SECRET')).toBe('git …')
+  expect(target('SECRET=value unknown-script')).toBe('')
+})

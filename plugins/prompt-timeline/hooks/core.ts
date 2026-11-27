@@ -28,11 +28,42 @@ export function preview(text: string, columns: number): string {
 
 const clean = (text: string) => text.replace(/[\p{Cc}\p{Bidi_Control}]/gu, '').slice(0, 40)
 
+// Emit only recognized operations and flags, never arbitrary shell arguments.
+const gitOps = new Set('add branch checkout clone commit diff fetch log merge pull push rebase reset rev-list rev-parse show status switch tag worktree'.split(' '))
+const shellOps = new Set('bun cargo cd claude go grep hc ls node npm pnpm pwd python python3 rg true uv'.split(' '))
+const gitFlags: Record<string, readonly string[]> = {
+  status: ['--short', '--branch', '-s', '-sb', '--porcelain'],
+  diff: ['--stat', '--shortstat', '--check', '--cached', '--name-only', '--name-status'],
+  log: ['--oneline', '--graph', '--all', '--decorate'],
+}
+
+function shellPreview(command: string): string {
+  const words = command.trim().split(/\s+/, 9)
+  const executable = words[0] ?? ''
+  if (executable !== 'git' && !shellOps.has(executable)) return ''
+  let used = 1
+  let label = executable
+  const operation = words[1] ?? ''
+  if (executable === 'git' && gitOps.has(operation)) {
+    label += ` ${operation}`
+    used++
+    const flags = gitFlags[operation] ?? []
+    while (used < Math.min(words.length, 5)) {
+      const word = words[used]!
+      if (!flags.includes(word) && !(operation === 'log' && /^-[1-9][0-9]?$/.test(word))) break
+      label += ` ${word}`
+      used++
+    }
+  }
+  return used < words.length ? `${label} …` : label
+}
+
 // Only identifiers that are safe to show: a file's basename, a URL's host, a subagent type or skill name.
-// Commands, patterns, queries and prompts never reach the label.
+// Free-form command arguments, patterns, queries and prompts never reach the label.
 function toolTarget(name: string, input: unknown): string {
   const args = typeof input === 'object' && input ? input as Record<string, unknown> : {}
   const text = (key: string) => typeof args[key] === 'string' ? args[key] : ''
+  if (name === 'Bash') return shellPreview(text('command'))
   if (['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name)) {
     return clean((text('file_path') || text('notebook_path')).split(/[\\/]/).pop() ?? '')
   }
