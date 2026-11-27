@@ -20,7 +20,7 @@ export type StepStats = {
   firstKind: string
 }
 
-export type PerfState = { last: StepStats | null; recent: StepStats[] }
+export type PerfState = { last: StepStats | null; recent: StepStats[]; contextRecent: StepStats[]; contextEpoch: number }
 
 export type MeasureState = {
   startedAt: number

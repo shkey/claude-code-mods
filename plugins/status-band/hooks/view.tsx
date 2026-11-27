@@ -237,12 +237,12 @@ const contextRow = (c: Ctx) => {
   const inputOf = (step: NonNullable<PerfState['last']>) =>
     step.usage.input + step.usage.cacheRead + step.usage.cacheWrite
   const sample = m.percent === null && m.tokens === null && hasWindow && s.identity.model !== ''
-    ? s.perf.recent.findLast(step => {
+    ? s.perf.contextRecent.findLast(step => {
       const input = inputOf(step)
       return step.model === s.identity.model && Number.isFinite(input) && input > 0
     }) : undefined
   const estimated = sample !== undefined
-  const older = estimated && !Object.is(sample, s.perf.recent.at(-1))
+  const older = estimated && !Object.is(sample, s.perf.contextRecent.at(-1))
   const tokens = sample === undefined ? m.tokens : inputOf(sample)
   const pct = m.percent ?? (tokens !== null && hasWindow ? Math.min(100, Math.round(tokens / m.window * 100)) : null)
 
@@ -261,7 +261,7 @@ const contextRow = (c: Ctx) => {
       </Text>,
     )
   } else {
-    items.push(dim(ui, '─'.repeat(14) + '  ctx unavailable', 'ctx'))
+    items.push(dim(ui, '─'.repeat(14) + (s.perf.contextEpoch > 0 ? '  compacted · awaiting usage' : '  ctx unavailable'), 'ctx'))
   }
   for (const l of m.limits.slice(0, 2)) {
     const tone = toneOf(l.percentUsed)

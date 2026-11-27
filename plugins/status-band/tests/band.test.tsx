@@ -658,6 +658,66 @@ test('a zero-usage response leaves the last measured context input available', a
   await ui.unmount()
 })
 
+test('only a successful main compaction retires the previous context reading', async ($, on) => {
+  world(on)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('session.compact', (_, e) => e.instructions === 'skip' ? { skip: 'test skip' } : { messages: e.messages })
+  let input = 684_000
+  on('turn.step', async function* (_, e) {
+    yield { kind: 'text' as const, index: 0, text: 'hello' }
+    return { turnId: e.turnId, index: 0, answer: 'hello', toolUses: [], stopReason: 'end_turn' as const,
+      usage: { ...USAGE_OF, input_tokens: input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+  })
+  await $.session.start(START)
+  const ui = await mount($)
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /122k\/1M/)).toBe(true)
+  const messages = [{ role: 'user' as const, text: 'synthetic summary', toolUses: [] }]
+  expect(await $.session.compact({ trigger: 'manual', messages: [] })).toEqual({ skip: 'Not enough messages to compact.' })
+  await $.session.compact({ trigger: 'precompute', messages })
+  await $.session.compact({ trigger: 'auto', agentId: 'a1', messages })
+  expect(await $.session.compact({ trigger: 'manual', instructions: 'skip', messages })).toEqual({ skip: 'test skip' })
+  expect(await has(ui, /122k\/1M/)).toBe(true)
+  expect((await $.session.compact({ trigger: 'manual', messages })).messages?.[0]?.text).toBe('synthetic summary')
+  expect(await has(ui, /compacted · awaiting usage/)).toBe(true)
+  expect(await has(ui, /122k\/1M|684k\/1M/)).toBe(false)
+  expect(await has(ui, /1 req/)).toBe(true)
+  await $.session.measure({ context: USAGE.context, rateLimits: [], changed: ['cost'] })
+  expect(await has(ui, /compacted · awaiting usage/)).toBe(true)
+  input = 0
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /compacted · awaiting usage/)).toBe(true)
+  input = 24_000
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /24k\/1M/)).toBe(true)
+  input = 0
+  await drain($.turn.step(STEP))
+  expect(await has(ui, /last 24k\/1M/)).toBe(true)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 25_000, percent: 3 }, rateLimits: [], changed: ['context'] })
+  expect(await has(ui, /25k\/1M/)).toBe(true)
+  await ui.unmount()
+})
+
+test('restoring a compacted transcript preserves totals but not old context readings', async ($, on) => {
+  const request = (id: string, second: number, input: number) => [
+    { type: 'api-request', id, timestamp: new Date(second * 1000).toISOString(), params: { model: STEP.model } },
+    { type: 'assistant', requestRef: id, timestamp: new Date((second + 1) * 1000).toISOString(),
+      message: { id, stop_reason: 'end_turn', content: [{ type: 'text' }], usage: { input_tokens: input } } },
+  ]
+  world(on, { missingContext: true, transcript: [
+    ...request('old', 1, 684_000),
+    { type: 'system', subtype: 'compact_boundary' },
+    ...request('zero', 3, 0),
+  ].map(row => JSON.stringify(row)).join('\n') })
+  await $.session.start(START)
+  await settle()
+  const ui = await mount($)
+  expect(await has(ui, /compacted · awaiting usage/)).toBe(true)
+  expect(await has(ui, /684k\/1M/)).toBe(false)
+  expect(await has(ui, /2 req/)).toBe(true)
+  await ui.unmount()
+})
+
 const recapLine = (content: string, isSidechain = false) =>
   JSON.stringify({ type: 'system', subtype: 'away_summary', content, isSidechain })
 

@@ -575,7 +575,7 @@ export type Identity = {
   cacheTtl: string
 }
 
-export type PerfState = { last: StepStats | null; recent: StepStats[] }
+export type PerfState = { last: StepStats | null; recent: StepStats[]; contextRecent: StepStats[]; contextEpoch: number }
 
 export const patchTrack = (
   t: Record<string, AgentTrack>,
@@ -623,6 +623,7 @@ export const patchLines = (result: unknown): LinesChanged | null => {
 /** One request as the transcript tells it: when it went out, and what its first and last content blocks were. */
 export type ScanRequest = {
   t0: number
+  contextEpoch: number
   model: string
   firstIdx: number
   firstAt: number
@@ -652,6 +653,7 @@ export type ScanAcc = {
   aiTitle: string
   recap: string
   requests: Map<string, ScanRequest>
+  contextEpoch: number
   meta: ScanMeta
 }
 
@@ -668,6 +670,7 @@ export const newScan = (): ScanAcc => ({
   aiTitle: '',
   recap: '',
   requests: new Map(),
+  contextEpoch: 0,
   meta: { at: 0, effort: '', thinking: null, cacheTtl: '' },
 })
 
@@ -690,10 +693,11 @@ export const scanChunk = (acc: ScanAcc, text: string, isLast: boolean, history =
     const isRequest = raw.includes('"api-request"')
 
     const isRecap = raw.includes('"away_summary"')
+    const isBoundary = history && raw.includes('"compact_boundary"')
     const isCall = history && raw.includes('"tool_use"')
     const isResult = history && raw.includes('"tool_result"')
 
-    if (!isUsage && !isTitle && !isRequest && !isRecap && !isCall && !isResult) continue
+    if (!isUsage && !isTitle && !isRequest && !isRecap && !isBoundary && !isCall && !isResult) continue
 
     let o: Record<string, unknown>
 
@@ -704,6 +708,7 @@ export const scanChunk = (acc: ScanAcc, text: string, isLast: boolean, history =
     }
 
     if (o.isSidechain === true) continue
+    if (isBoundary && o.type === 'system' && o.subtype === 'compact_boundary') acc.contextEpoch += 1
     if (o.type === 'ai-title' && typeof o.aiTitle === 'string') acc.aiTitle = oneLine(o.aiTitle)
     if (o.type === 'custom-title' && typeof o.customTitle === 'string') acc.customTitle = oneLine(o.customTitle)
     if (o.type === 'system' && o.subtype === 'away_summary' && typeof o.content === 'string') {
@@ -776,6 +781,7 @@ const scanRequest = (acc: ScanAcc, o: Record<string, unknown>): void => {
 
   acc.requests.set(o.id, {
     t0: at,
+    contextEpoch: acc.contextEpoch,
     model: typeof p.model === 'string' ? p.model : '',
     firstIdx: Infinity,
     firstAt: 0,
@@ -835,8 +841,9 @@ const scanBlock = (acc: ScanAcc, o: Record<string, unknown>, msg: { usage?: Reco
  * whole request. Decode speed cannot be told from timestamps, so `tps` and `tpot` stay empty. `apiMs` is the
  * time all of them took.
  */
-export const requestStats = (acc: ScanAcc): { stats: StepStats[]; apiMs: number } => {
+export const requestStats = (acc: ScanAcc): { stats: StepStats[]; contextRecent: StepStats[]; apiMs: number } => {
   const stats: StepStats[] = []
+  const contextRecent: StepStats[] = []
   let apiMs = 0
 
   for (const r of acc.requests.values()) {
@@ -852,7 +859,7 @@ export const requestStats = (acc: ScanAcc): { stats: StepStats[]; apiMs: number 
 
       if (v >= 0 && v <= e2e) ttft = v
     }
-    stats.push({
+    const sample: StepStats = {
       at: r.lastAt,
       model: r.model,
       ttft,
@@ -865,10 +872,13 @@ export const requestStats = (acc: ScanAcc): { stats: StepStats[]; apiMs: number 
       thinking: r.firstKind === 'thinking',
       contentChunks: 0,
       firstKind: r.firstKind,
-    })
+    }
+    stats.push(sample)
+    if (r.contextEpoch === acc.contextEpoch) contextRecent.push(sample)
   }
 
-  return { stats: stats.sort((x, y) => x.at - y.at), apiMs }
+  const byTime = (x: StepStats, y: StepStats) => x.at - y.at
+  return { stats: stats.sort(byTime), contextRecent: contextRecent.sort(byTime).slice(-10), apiMs }
 }
 
 /** The name the person gave with /rename, or else the one Claude Code made up. */

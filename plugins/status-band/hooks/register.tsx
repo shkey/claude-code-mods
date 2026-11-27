@@ -64,7 +64,7 @@ import type { Actions, Snap } from './view'
 // State lives in atoms: a `ui.render` hook that reads one is drawn again whenever it changes, so the band
 // follows each event as it happens instead of polling. They are written here, in the hooks module itself,
 // because the static scan only follows atoms it can see in this file.
-const perf = atom({ plugin: 'status-band', key: 'perf' } as const, { last: null, recent: [] } as PerfState)
+const perf = atom({ plugin: 'status-band', key: 'perf' } as const, { last: null, recent: [], contextRecent: [], contextEpoch: 0 } as PerfState)
 const main = atom({ plugin: 'status-band', key: 'main' } as const, EMPTY_TOTALS)
 const agents = atom({ plugin: 'status-band', key: 'agents' } as const, EMPTY_TOTALS)
 const measure = atom({ plugin: 'status-band', key: 'measure' } as const, null as MeasureState | null)
@@ -210,7 +210,7 @@ const seedFromTranscript = async ($: EngineInterface): Promise<void> => {
     })
     if ((await read($, main)).reqs > 0) return
 
-    const { stats, apiMs } = requestStats(acc)
+    const { stats, contextRecent, apiMs } = requestStats(acc)
 
     await update($, main, t => ({ ...t, ...acc.usage, reqs: acc.reqs, apiMs }))
     await update($, counts, c => (Object.keys(c).length === 0 ? acc.counts : c))
@@ -218,7 +218,9 @@ const seedFromTranscript = async ($: EngineInterface): Promise<void> => {
 
     const newest = stats[stats.length - 1]
 
-    if (newest !== undefined) await update($, perf, p => (p.last === null ? { last: newest, recent: stats.slice(-10) } : p))
+    await update($, perf, p => p.last !== null || p.contextEpoch !== 0 ? p : {
+      ...p, last: newest ?? null, recent: stats.slice(-10), contextRecent, contextEpoch: acc.contextEpoch,
+    })
 
     await update($, identity, i => ({
       ...i,
@@ -372,6 +374,7 @@ export const register: Register = on => {
       contentChunks: 0,
       hasThinking: false,
     }
+    const epoch = e.agentId === undefined ? await attempt(async () => (await read($, perf)).contextEpoch) : undefined
     if (e.agentId === undefined) void setState($, 'busy', null)
 
     const stream = next(e)
@@ -414,7 +417,10 @@ export const register: Register = on => {
         const agentId = e.agentId
 
         if (agentId === undefined) {
-          await update($, perf, p => ({ last: stats, recent: pushRecent(p.recent, stats) }))
+          await update($, perf, p => ({
+            ...p, last: stats, recent: pushRecent(p.recent, stats),
+            contextRecent: p.contextEpoch === epoch ? pushRecent(p.contextRecent, stats) : p.contextRecent,
+          }))
           await update($, main, t => addUsage(t, usage, stats.e2e * 1000))
           await update($, lastResponse, () => stats.at)
 
@@ -436,11 +442,29 @@ export const register: Register = on => {
     return result
   })
 
+  on('session.compact', async ($, e, next) => {
+    // This engine rejects empty messages at next(), before core can return this skip.
+    if (e.messages.length === 0) return { skip: 'Not enough messages to compact.' }
+    const result = await next(e)
+    if (result.skip === undefined && e.agentId === undefined && e.trigger !== 'precompute') {
+      try {
+        await update($, measure, m => m === null ? m : { ...m, tokens: null, percent: null })
+        await update($, perf, p => ({ ...p, contextRecent: [], contextEpoch: p.contextEpoch + 1 }))
+      } catch {}
+    }
+    return result
+  })
+
   on('session.measure', async ($, e, next) => {
     try {
       const prev = await read($, measure)
 
-      await update($, measure, () => toMeasure(e, prev !== null ? prev.startedAt : 0))
+      await update($, measure, () => {
+        const nextMeasure = toMeasure(e, prev?.startedAt ?? 0)
+        return prev !== null && !e.changed.includes('context')
+          ? { ...nextMeasure, tokens: prev.tokens, percent: prev.percent }
+          : nextMeasure
+      })
     } catch {}
 
     return next(e)
@@ -630,7 +654,7 @@ export const register: Register = on => {
       return { text: 'notifications ' + (isOn ? 'on: waiting for you, and turns over a minute' : 'off') }
     }
     if (arg === 'reset') {
-      await update($, perf, () => ({ last: null, recent: [] }))
+      await update($, perf, p => ({ ...p, last: null, recent: [], contextRecent: [] }))
       await update($, main, () => EMPTY_TOTALS)
       await update($, agents, () => EMPTY_TOTALS)
       await update($, calls, () => [])
