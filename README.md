@@ -49,7 +49,7 @@ See the [status-band guide](plugins/status-band/README.md) for all rows and comm
 
 ### prompt-timeline
 
-Click a prompt in the fullscreen terminal's right-hand pane to jump to it, or click `回复` to jump to its first text reply. After compaction, older entries can remain in the timeline even if Claude Code no longer displays those messages. Scroll within the pane to see more entries. Use the native close button to hide it. To reopen it, run:
+Click a prompt in the fullscreen terminal's right-hand pane to jump to it. Click `回复` to jump to a single reply, or `回复 N` to choose a segment when the prompt has multiple replies. After compaction, older entries can remain in the timeline even if Claude Code no longer displays those messages. Scroll within the pane to see more entries. Use the native close button to hide it. To reopen it, run:
 
 ```text
 /prompt-timeline

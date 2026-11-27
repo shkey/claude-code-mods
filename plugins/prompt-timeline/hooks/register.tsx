@@ -5,7 +5,8 @@ import type { Prompt } from './core'
 
 const PANE = 'prompt-timeline'
 const CHUNK = 256 * 1024
-const view = atom({ plugin: 'prompt-timeline', key: 'view' } as const, { prompts: [] as Prompt[], current: '' })
+// A new key keeps hot reload from reading the old single-reply state shape.
+const view = atom({ plugin: 'prompt-timeline', key: 'replyView' } as const, { prompts: [] as Prompt[], current: '', expanded: '' })
 
 let path = ''
 let offset = 0
@@ -21,15 +22,18 @@ const drawn = new Map<string, string>()
 let busy = false
 let warned = false
 let current = ''
+let expanded = ''
+let publishedExpanded = ''
 let published = ''
 let publishedPrompts = index.prompts
 let refreshViewPending = false
 
 const publish = async ($: EngineInterface) => {
-  if (current === published && index.prompts === publishedPrompts) return
+  if (current === published && expanded === publishedExpanded && index.prompts === publishedPrompts) return
   published = current
+  publishedExpanded = expanded
   publishedPrompts = index.prompts
-  await update($, view, () => ({ prompts: publishedPrompts, current: published }))
+  await update($, view, () => ({ prompts: publishedPrompts, current: published, expanded: publishedExpanded }))
 }
 const updateCurrent = () => {
   current = activePrompt(index.rows, visible) ?? (index.prompts.some(p => p.id === current) ? current : index.prompts.at(-1)?.id ?? '')
@@ -66,6 +70,7 @@ const refresh = async ($: EngineInterface) => {
       decoder = utf8Decoder()
       history = []
       current = ''
+      expanded = ''
     }
     const before = history.length
     while (offset < size) {
@@ -82,6 +87,7 @@ const refresh = async ($: EngineInterface) => {
     }
     if (reset || history.length !== before) {
       index = indexRows(history)
+      if (!index.prompts.some(p => p.id === expanded && p.replies.length > 1)) expanded = ''
       updateCurrent()
       await publish($)
     }
@@ -121,7 +127,7 @@ export const register: Register = on => {
   })
   on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
     if (e.surface === 'terminal') {
-      if (e.props.isFirstOfReply) drawn.set(rowKey(e.requestId), e.requestId)
+      drawn.set(rowKey(e.requestId), e.requestId)
       report($, e.requestId, e.props.onScreen)
     }
     return next(e)
@@ -143,20 +149,39 @@ export const register: Register = on => {
     if (e.props.view.agentId) return <Text dimColor>Switch to the main chat.</Text>
     return <Box flexDirection="column">
       <Text dimColor>Prompts · {state.prompts.length}</Text>
-      {state.prompts.map(p => <Box key={`turn:${p.id}`} flexDirection="row" gap={1}>
-        <Button key={`jump:${p.id}`} plain dimColor={p.id !== state.current}
-          label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, e.props.bodyColumns - (p.replyId ? 8 : 2))}`} onPress={() => {}} />
-        {p.replyId && <Button key={`reply:${p.id}`} plain label="回复" onPress={() => {}} />}
-      </Box>)}
+      {state.prompts.map(p => {
+        const count = p.replies.length
+        const opened = state.expanded === p.id
+        const label = count > 1 ? `回复 ${count} ${opened ? '▾' : '▸'}` : '回复'
+        const buttonWidth = count > 1 ? 8 + String(count).length : 4
+        return <Box key={`turn:${p.id}`} flexDirection="column">
+          <Box flexDirection="row" gap={1}>
+            <Button key={`jump:${p.id}`} plain dimColor={p.id !== state.current}
+              label={`${p.id === state.current ? '━' : '─'} ${preview(p.text, e.props.bodyColumns - (count ? buttonWidth + 4 : 3))}`} onPress={() => {}} />
+            {count > 0 && <Button key={`reply:${p.id}`} plain label={label} onPress={() => {}} />}
+          </Box>
+          {opened && p.replies.map((reply, i) => {
+            const prefix = `  ${i + 1}  `
+            return <Button key={`segment:${p.id}:${reply.id}`} plain
+              label={prefix + preview(reply.text, e.props.bodyColumns - prefix.length)} onPress={() => {}} />
+          })}
+        </Box>
+      })}
     </Box>
   })
   on('ui.press', { component: 'Pane', requestId: PANE, plugin: PANE }, async ($, e, next) => {
     const result = await next(e)
-    const match = /^(jump|reply):(.+)$/.exec(e.element)
+    const match = /^(jump|reply|segment):([^:]+)(?::([^:]+))?$/.exec(e.element)
     if (!match) return result
     const prompt = index.prompts.find(p => p.id === match[2])
     if (!prompt) return result
-    const id = match[1] === 'reply' ? prompt.replyId : prompt.id
+    if (match[1] === 'reply' && prompt.replies.length > 1) {
+      expanded = expanded === prompt.id ? '' : prompt.id
+      await publish($)
+      return result
+    }
+    const id = match[1] === 'jump' ? prompt.id : match[1] === 'reply' ? prompt.replies[0]?.id
+      : expanded === prompt.id ? prompt.replies.find(reply => reply.id === match[3])?.id : undefined
     if (!id) return result
     const target = drawn.get(rowKey(id)) ?? id
     const jump = await $.ui.scroll({ to: { requestId: target }, block: 'start' })

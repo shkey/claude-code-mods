@@ -1,5 +1,5 @@
-type Row = { id: string; parent?: string; side: boolean; text: string; answer: boolean; tools: string[]; retainedAfterCompact?: string[] }
-export type Prompt = { id: string; text: string; replyId?: string }
+type Row = { id: string; parent?: string; side: boolean; text: string; answer: string; response?: string; tools: string[]; retainedAfterCompact?: string[] }
+export type Prompt = { id: string; text: string; replies: { id: string; text: string }[] }
 type Position = { order: number; prompt: string }
 export const rowKey = (id: string) => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id) ? id.slice(0, 24) : id
 
@@ -35,14 +35,16 @@ export function parseRow(line: string): Row | undefined {
   const text = human && row.type === 'user' && !blocks.some(b => b?.type === 'tool_result')
     ? promptText(typeof content === 'string' ? content : blocks.flatMap(b => b?.type === 'text' && typeof b.text === 'string' ? [b.text] : []).join(' '))
     : ''
-  const answer = row.type === 'assistant' && !row.isMeta && !row.isApiErrorMessage &&
-    (typeof content === 'string' ? Boolean(content.trim()) : blocks.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim()))
+  const answer = row.type === 'assistant' && !row.isMeta && !row.isApiErrorMessage
+    ? (typeof content === 'string' ? content : blocks.flatMap(b => b?.type === 'text' && typeof b.text === 'string' ? [b.text] : []).join(' ')).trim().replace(/\s+/g, ' ').slice(0, 160)
+    : ''
+  const response = typeof row.requestRef === 'string' ? row.requestRef : typeof row.message?.id === 'string' ? row.message.id : undefined
   const tools = blocks.flatMap(b => b?.type === 'tool_use' && typeof b.id === 'string' ? [b.id] : [])
   const preserved = row.type === 'system' && row.subtype === 'compact_boundary'
     ? row.compactMetadata?.preservedMessages?.allUuids : undefined
   const retainedAfterCompact = Array.isArray(preserved) && preserved.every(id => typeof id === 'string')
     ? preserved : undefined
-  return { id: row.uuid, parent: row.parentUuid ?? row.logicalParentUuid, side: row.isSidechain === true, text, answer, tools, ...(row.type === 'system' && row.subtype === 'compact_boundary' && { retainedAfterCompact }) }
+  return { id: row.uuid, parent: row.parentUuid ?? row.logicalParentUuid, side: row.isSidechain === true, text, answer, response, tools, ...(row.type === 'system' && row.subtype === 'compact_boundary' && { retainedAfterCompact }) }
 }
 
 export function indexRows(history: Row[]) {
@@ -58,15 +60,24 @@ export function indexRows(history: Row[]) {
   const prompts: Prompt[] = []
   const rows = new Map<string, Position>()
   let owner: Prompt | undefined
+  let previousResponse: string | undefined
   chain.reverse().forEach((row, order) => {
     if (row.text) {
-      owner = { id: row.id, text: row.text }
+      owner = { id: row.id, text: row.text, replies: [] }
       prompts.push(owner)
     }
     if (owner) {
-      if (row.answer) owner.replyId ??= row.id
+      if (row.answer) {
+        const previous = owner.replies.at(-1)
+        if (previous && row.response && row.response === previousResponse) {
+          previous.text = `${previous.text} ${row.answer}`.slice(0, 160)
+        } else {
+          owner.replies.push({ id: row.id, text: row.answer })
+        }
+      }
       for (const id of [row.id, ...row.tools]) rows.set(rowKey(id), { order, prompt: owner.id })
     }
+    previousResponse = row.answer ? row.response : undefined
   })
   const boundary = history.findLastIndex(row => !row.side && 'retainedAfterCompact' in row)
   const retained = boundary < 0 ? undefined : history[boundary]?.retainedAfterCompact

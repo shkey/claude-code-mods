@@ -14,7 +14,7 @@ test('preserves repeated questions, maps replies and tools, skips tool results a
     user('meta', 'result', 'injected', { isMeta: true }),
     user('summary', 'meta', 'summary', { isCompactSummary: true }),
     user('two', 'summary', 'same'), reply('last', 'two'))
-  expect(history.prompts).toEqual([{ id: 'one', text: 'same' }, { id: 'two', text: 'same' }])
+  expect(history.prompts).toEqual([{ id: 'one', text: 'same', replies: [] }, { id: 'two', text: 'same', replies: [] }])
   expect(history.rows.get('tool-reply')?.prompt).toBe('one')
   expect(history.rows.get('last')?.prompt).toBe('two')
 })
@@ -47,14 +47,17 @@ test('fits a single label in terminal cells and strips control characters', () =
 })
 
 
-test('anchors each turn to its first visible assistant text, skipping tool-only rows and errors', () => {
+test('groups adjacent text blocks from one response and keeps later replies in order', () => {
   const answer = (uuid: string, parentUuid: string, text: string, extra = {}) => ({
     uuid, parentUuid, type: 'assistant', message: { content: [{ type: 'text', text }] }, ...extra,
   })
   const history = index(user('one', null, 'first'), reply('tool', 'one'),
-    answer('error', 'tool', 'error', { isApiErrorMessage: true }), answer('answer', 'error', 'first answer'),
-    answer('later', 'answer', 'more'), user('two', 'later', 'second'), reply('pending', 'two'))
-  expect(history.prompts.map(p => [p.id, p.replyId])).toEqual([['one', 'answer'], ['two', undefined]])
+    answer('error', 'tool', 'error', { isApiErrorMessage: true }), answer('answer', 'error', 'first answer', { requestRef: 'r1' }),
+    answer('part', 'answer', 'continued', { requestRef: 'r1' }),
+    answer('later', 'part', 'more', { requestRef: 'r2' }), user('two', 'later', 'second'), reply('pending', 'two'))
+  expect(history.prompts.map(p => [p.id, p.replies])).toEqual([
+    ['one', [{ id: 'answer', text: 'first answer continued' }, { id: 'later', text: 'more' }]], ['two', []],
+  ])
 })
 
 

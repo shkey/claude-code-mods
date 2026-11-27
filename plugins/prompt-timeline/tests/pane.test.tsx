@@ -93,3 +93,33 @@ test('keeps compacted prompts and retained replies in the timeline', async ($, o
   }
   await ui.unmount()
 })
+
+
+test('expands three reply segments under their own prompt, including after compaction', async ($, on) => {
+  const clock = mock.clock(on)
+  const transcript = row('first', null, 'user') + row('a', 'first', 'assistant') +
+    row('b', 'a', 'assistant') + row('c', 'b', 'assistant') +
+    JSON.stringify({ uuid: 'boundary', logicalParentUuid: 'c', type: 'system', subtype: 'compact_boundary',
+      compactMetadata: { preservedMessages: { allUuids: ['b', 'c'] } } }) + '\n' +
+    row('second', 'boundary', 'user') + row('d', 'second', 'assistant')
+  const bytes = new TextEncoder().encode(transcript)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.info', () => ({ value: { transcriptPath: '/fixture.jsonl' } as never }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.stat', () => ({ value: { size: bytes.length } as never }))
+  on('fs.read', () => ({ value: { base64: (bytes as Uint8Array & { toBase64(): string }).toBase64() } }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  await $.session.start({ cwd: '/fixture', surface: 'terminal', isInteractive: true })
+  await clock.advance(750)
+  const ui = await $.ui.mount(pane)
+  await ui.press({ key: 'reply:first' })
+  for (const id of ['a', 'b', 'c']) {
+    expect(await ui.find({ type: 'Button', key: `segment:first:${id}` })).toBeDefined()
+  }
+  expect(await ui.find({ type: 'Button', key: 'reply:second', text: '回复' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'segment:first:d' })).toBeUndefined()
+  await ui.press({ key: 'reply:first' })
+  expect(await ui.find({ type: 'Button', key: 'segment:first:a' })).toBeUndefined()
+  await ui.unmount()
+})
